@@ -3,13 +3,18 @@
 #include "../platform/WindowFactory.h"
 #include "../platform/sdl/SDLWindow.h"
 
+#include "../platform/input/Input.h"
+#include "../renderer/world/World.h"
+
 #include "../renderer/Mesh.h"
 #include "../renderer/Shader.h"
 
-#include "../components/Transform.h"
-#include "../components/RigidBody.h"
+#include "../ecs/components/RigidBody.h"
+#include "../ecs/components/Transform.h"
 
-#include "../systems/PhysicsSystem.h"
+#include "../ecs/systems/PhysicsSystem.h"
+
+#include "../utils/Log.h"
 
 #include <SDL3/SDL.h>
 
@@ -21,40 +26,36 @@
 
 #include <iostream>
 
-bool Application::init()
-{
-    window = CreateWindow(PlatformType::SDL);
+bool Application::init() {
+  window = CreateWindow(PlatformType::SDL);
 
-    if (!window->init(1280, 720, "doofus"))
-        return false;
+  if (!window->init(1280, 720, "doofus"))
+    return false;
 
-    if (!gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress))
-    {
-        std::cout << "GLAD FAILED\n";
-        return false;
-    }
+  if (!gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress)) {
+    std::cout << "GLAD FAILED\n";
+    return false;
+  }
 
-    glViewport(0, 0, 1280, 720);
+  glViewport(0, 0, 1280, 720);
 
-    glEnable(GL_DEPTH_TEST);
+  glEnable(GL_DEPTH_TEST);
 
-    SDLWindow* sdl =
-        static_cast<SDLWindow*>(window.get());
+  SDLWindow *sdl = static_cast<SDLWindow *>(window.get());
 
-    SDL_SetWindowRelativeMouseMode(
-        sdl->getWindow(),
-        true
-    );
+  SDL_SetWindowRelativeMouseMode(sdl->getWindow(), true);
 
-    return true;
+  return true;
 }
 
-void Application::run()
-{
-    SDLWindow* sdl =
-        static_cast<SDLWindow*>(window.get());
+void Application::run() {
+  SDLWindow *sdl = static_cast<SDLWindow *>(window.get());
 
-    const char* vertexShader = R"(
+  World world;
+
+  world.generate();
+
+  const char *vertexShader = R"(
         #version 460 core
 
         layout (location = 0) in vec3 aPos;
@@ -77,7 +78,7 @@ void Application::run()
         }
     )";
 
-    const char* fragmentShader = R"(
+  const char *fragmentShader = R"(
         #version 460 core
 
         in vec3 FragPos;
@@ -102,227 +103,131 @@ void Application::run()
         }
     )";
 
-    Shader shader(vertexShader, fragmentShader);
+  Shader shader(vertexShader, fragmentShader);
 
-    float planeVertices[] = {
+  float planeVertices[] = {
 
-        -20.0f, 0.0f, -20.0f,
-         20.0f, 0.0f, -20.0f,
-         20.0f, 0.0f,  20.0f,
+      -20.0f, 0.0f, -20.0f, 20.0f, 0.0f, -20.0f, 20.0f,  0.0f, 20.0f,
 
-        -20.0f, 0.0f, -20.0f,
-         20.0f, 0.0f,  20.0f,
-        -20.0f, 0.0f,  20.0f
-    };
+      -20.0f, 0.0f, -20.0f, 20.0f, 0.0f, 20.0f,  -20.0f, 0.0f, 20.0f};
 
-    Mesh plane(
-        planeVertices,
-        sizeof(planeVertices)
-    );
+  Mesh plane(planeVertices, sizeof(planeVertices));
 
-    TransformComponent playerTransform;
-    playerTransform.position =
-        glm::vec3(0.0f, 0.0f, 0.0f);
+  TransformComponent playerTransform;
 
-    RigidbodyComponent playerRigidbody;
+  playerTransform.position = glm::vec3(0.0f, 0.0f, 0.0f);
 
-    Uint64 last =
-        SDL_GetPerformanceCounter();
+  RigidbodyComponent playerRigidbody;
 
-    bool cursorLocked = true;
+  Uint64 last = SDL_GetPerformanceCounter();
 
-    while (!window->shouldClose())
-    {
-        Uint64 now =
-            SDL_GetPerformanceCounter();
+  bool cursorLocked = true;
 
-        float dt =
-            (float)(now - last)
-            / SDL_GetPerformanceFrequency();
+  bool escPressed = false;
 
-        last = now;
+  while (!window->shouldClose()) {
+    Uint64 now = SDL_GetPerformanceCounter();
 
-        window->pollEvents();
+    float dt = (float)(now - last) / SDL_GetPerformanceFrequency();
 
-        float mx, my;
+    last = now;
 
-        SDL_GetRelativeMouseState(
-            &mx,
-            &my
-        );
+    Input::update();
 
-        float sensitivity = 0.1f;
+    float sensitivity = 0.1f;
 
-        if (cursorLocked)
-        {
-            camera.yaw += mx * sensitivity;
+    if (cursorLocked) {
+      camera.yaw += Input::mouseX * sensitivity;
 
-            camera.pitch -= my * sensitivity;
+      camera.pitch -= Input::mouseY * sensitivity;
 
-            if (camera.pitch > 89.0f)
-                camera.pitch = 89.0f;
+      if (camera.pitch > 89.0f)
+        camera.pitch = 89.0f;
 
-            if (camera.pitch < -89.0f)
-                camera.pitch = -89.0f;
+      if (camera.pitch < -89.0f)
+        camera.pitch = -89.0f;
 
-            camera.updateVectors();
-        }
-
-        const bool* keys =
-            SDL_GetKeyboardState(NULL);
-
-        float speed = 5.0f * dt;
-
-        glm::vec3 right =
-            glm::normalize(
-                glm::cross(
-                    camera.front,
-                    camera.up
-                )
-            );
-
-        glm::vec3 moveDir =
-            glm::vec3(0.0f);
-
-        glm::vec3 flatFront =
-            glm::normalize(
-                glm::vec3(
-                    camera.front.x,
-                    0.0f,
-                    camera.front.z
-                )
-            );
-
-        if (keys[SDL_SCANCODE_W])
-            moveDir += flatFront;
-
-        if (keys[SDL_SCANCODE_S])
-            moveDir -= flatFront;
-
-        if (keys[SDL_SCANCODE_A])
-            moveDir -= right;
-
-        if (keys[SDL_SCANCODE_D])
-            moveDir += right;
-
-        if (glm::length(moveDir) > 0.0f)
-        {
-            moveDir =
-                glm::normalize(moveDir);
-
-            playerTransform.position +=
-                moveDir * speed;
-        }
-
-        if (
-            keys[SDL_SCANCODE_SPACE]
-            &&
-            playerRigidbody.grounded
-        )
-        {
-            playerRigidbody.velocity.y =
-                playerRigidbody.jumpForce;
-        }
-
-        PhysicsSystem::update(
-            playerTransform,
-            playerRigidbody,
-            dt
-        );
-
-        camera.position =
-            playerTransform.position
-            +
-            glm::vec3(0.0f, 1.7f, 0.0f);
-
-        static bool escPressed = false;
-
-        if (keys[SDL_SCANCODE_ESCAPE])
-        {
-            if (!escPressed)
-            {
-                cursorLocked =
-                    !cursorLocked;
-
-                SDL_SetWindowRelativeMouseMode(
-                    sdl->getWindow(),
-                    cursorLocked
-                );
-
-                escPressed = true;
-            }
-        }
-        else
-        {
-            escPressed = false;
-        }
-
-        glClearColor(
-            0.1f,
-            0.1f,
-            0.12f,
-            1.0f
-        );
-
-        glClear(
-            GL_COLOR_BUFFER_BIT
-            |
-            GL_DEPTH_BUFFER_BIT
-        );
-
-        shader.use();
-
-        glm::mat4 model =
-            glm::mat4(1.0f);
-
-        glm::mat4 view =
-            camera.getViewMatrix();
-
-        glm::mat4 projection =
-            glm::perspective(
-                glm::radians(90.0f),
-                1280.0f / 720.0f,
-                0.1f,
-                100.0f
-            );
-
-        glUniformMatrix4fv(
-            glGetUniformLocation(
-                shader.id,
-                "model"
-            ),
-            1,
-            GL_FALSE,
-            glm::value_ptr(model)
-        );
-
-        glUniformMatrix4fv(
-            glGetUniformLocation(
-                shader.id,
-                "view"
-            ),
-            1,
-            GL_FALSE,
-            glm::value_ptr(view)
-        );
-
-        glUniformMatrix4fv(
-            glGetUniformLocation(
-                shader.id,
-                "projection"
-            ),
-            1,
-            GL_FALSE,
-            glm::value_ptr(projection)
-        );
-
-        plane.draw();
-
-        window->swapBuffers();
+      camera.updateVectors();
     }
+
+    float speed = 5.0f * dt;
+
+    glm::vec3 right = glm::normalize(glm::cross(camera.front, camera.up));
+
+    glm::vec3 moveDir = glm::vec3(0.0f);
+
+    glm::vec3 flatFront =
+        glm::normalize(glm::vec3(camera.front.x, 0.0f, camera.front.z));
+
+    if (Input::w)
+      moveDir += flatFront;
+
+    if (Input::s)
+      moveDir -= flatFront;
+
+    if (Input::a)
+      moveDir -= right;
+
+    if (Input::d)
+      moveDir += right;
+
+    if (glm::length(moveDir) > 0.0f) {
+      moveDir = glm::normalize(moveDir);
+
+      playerRigidbody.velocity.x = moveDir.x * 5.0f;
+
+      playerRigidbody.velocity.z = moveDir.z * 5.0f;
+    } else {
+      playerRigidbody.velocity.x = 0.0f;
+      playerRigidbody.velocity.z = 0.0f;
+    }
+
+    if (Input::space && playerRigidbody.grounded) {
+      playerRigidbody.velocity.y = playerRigidbody.jumpForce;
+    }
+
+    PhysicsSystem::update(playerTransform, playerRigidbody, world, dt);
+
+    camera.position = playerTransform.position + glm::vec3(0.0f, 1.7f, 0.0f);
+
+    if (Input::escape) {
+      if (!escPressed) {
+        cursorLocked = !cursorLocked;
+
+        SDL_SetWindowRelativeMouseMode(sdl->getWindow(), cursorLocked);
+
+        escPressed = true;
+      }
+    } else {
+      escPressed = false;
+    }
+
+    glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    shader.use();
+
+    glm::mat4 model = glm::mat4(1.0f);
+
+    glm::mat4 view = camera.getViewMatrix();
+
+    glm::mat4 projection =
+        glm::perspective(glm::radians(90.0f), 1280.0f / 720.0f, 0.1f, 100.0f);
+
+    glUniformMatrix4fv(glGetUniformLocation(shader.id, "model"), 1, GL_FALSE,
+                       glm::value_ptr(model));
+
+    glUniformMatrix4fv(glGetUniformLocation(shader.id, "view"), 1, GL_FALSE,
+                       glm::value_ptr(view));
+
+    glUniformMatrix4fv(glGetUniformLocation(shader.id, "projection"), 1,
+                       GL_FALSE, glm::value_ptr(projection));
+
+    world.draw();
+
+    window->swapBuffers();
+  }
 }
 
-void Application::shutdown()
-{
-    window.reset();
-}
+void Application::shutdown() { window.reset(); }

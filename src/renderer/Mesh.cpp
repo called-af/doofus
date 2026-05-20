@@ -1,8 +1,15 @@
 #include "Mesh.h"
 
-Mesh::Mesh(float* vertices, unsigned int size)
+Mesh::Mesh(
+    float* vertices,
+    unsigned int size
+)
 {
+    vertexCount =
+        size / (3 * sizeof(float));
+
     glGenVertexArrays(1, &VAO);
+
     glGenBuffers(1, &VBO);
 
     glBindVertexArray(VAO);
@@ -32,5 +39,9 @@ void Mesh::draw()
 {
     glBindVertexArray(VAO);
 
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glDrawArrays(
+        GL_TRIANGLES,
+        0,
+        vertexCount
+    );
 }
