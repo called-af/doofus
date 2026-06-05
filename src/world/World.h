@@ -1,26 +1,34 @@
 #pragma once
 
+#include "../renderer/Frustum.h"
 #include "Chunk.h"
+#include "ChunkWorker.h"
 
+#include <queue>
 #include <memory>
 #include <unordered_map>
-#include <vector>
+#include <unordered_set>
 
 class World {
 public:
+
+    World();
+    ~World();
 
     std::unordered_map<
         long long,
         std::unique_ptr<Chunk>
     > chunks;
 
-    /*
-        CHUNK LOAD QUEUE
-    */
+    std::unordered_set<
+        long long
+    > queuedChunks;
 
-    std::vector<
-        std::pair<int,int>
-    > chunkQueue;
+    std::unique_ptr<
+        ChunkWorker
+    > worker;
+
+    std::queue<long long> remeshQueue;
 
     void update(
         float playerX,
@@ -29,8 +37,13 @@ public:
 
     void draw(
         float playerX,
-        float playerZ
+        float playerZ,
+        const Frustum& frustum
     );
+
+    void markChunkDirty(
+    Chunk* chunk
+);
 
     bool isSolid(
         int x,
@@ -50,7 +63,9 @@ public:
 
     void loadChunk(
         int chunkX,
-        int chunkZ
+        int chunkZ,
+        int playerChunkX,
+        int playerChunkZ
     );
 
     void unloadFarChunks(

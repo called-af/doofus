@@ -6,6 +6,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(SDL3 REQUIRED)
 find_package(OpenGL REQUIRED)
+find_package(Freetype REQUIRED)
 
 add_executable(doofus
 
@@ -26,9 +27,12 @@ add_executable(doofus
 
     #ui
     src/renderer/ui/Crosshair.cpp
+    src/renderer/ui/DebugOverlay.cpp
+    src/renderer/ui/Font.cpp
 
     #model
     src/renderer/model/Model.cpp
+    
     src/renderer/model/OBJLoader.cpp
     
     # platform
@@ -43,6 +47,7 @@ add_executable(doofus
     src/renderer/opengl/TextureArray.cpp
     src/renderer/opengl/Texture.cpp
     src/renderer/Sky.cpp
+    src/renderer/Frustum.cpp
 
     # camera
     src/camera/Camera.cpp
@@ -61,6 +66,7 @@ add_executable(doofus
     src/world/TerrainGenerator.cpp
     src/world/mesher/GreedyMesher.cpp
     src/world/World.cpp
+    src/world/ChunkWorker.cpp
     src/world/biome/BiomeManager.cpp
     src/world/biome/plain/PlainBiome.cpp
     src/world/biome/desert/DesertBiome.cpp
@@ -81,6 +87,7 @@ target_include_directories(doofus PRIVATE
 target_link_libraries(doofus PRIVATE
     SDL3::SDL3
     OpenGL::GL
+    Freetype::Freetype
 )
 
 file(COPY assets DESTINATION ${CMAKE_BINARY_DIR})

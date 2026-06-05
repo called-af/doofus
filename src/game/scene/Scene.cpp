@@ -3,8 +3,8 @@
 #include "../../core/Setting.h"
 #include "../../ecs/systems/PhysicsSystem.h"
 #include "../../platform/input/Input.h"
-#include "../../renderer/ui/Crosshair.h"
 #include "../../renderer/opengl/TextureArray.h"
+#include "../../renderer/ui/Crosshair.h"
 #include <glad/gl.h>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -14,22 +14,27 @@ void Scene::init() {
 
   sky.Init();
 
-  crosshair.init();
+  uiShader = std::make_unique<Shader>(
+        "assets/shaders/ui.vert",
+        "assets/shaders/ui.frag"
+    );
+
+    crosshair.init(uiShader.get());
+    debugOverlay.init(uiShader.get());
+
 
   shader = std::make_unique<Shader>("assets/shaders/block.vert",
                                     "assets/shaders/block.frag");
 
   atlas = std::make_unique<TextureArray>(
-    std::vector<std::string>{
-        "assets/textures/grass.png",       // layer 0
-        "assets/textures/grass_side.png",  // layer 1
-        "assets/textures/dirt.png",        // layer 2
-        "assets/textures/stone.png",       // layer 3
-        "assets/textures/sand.png",        // layer 4
-    },
-    16,
-    true
-);
+      std::vector<std::string>{
+          "assets/textures/grass.png",      // layer 0
+          "assets/textures/grass_side.png", // layer 1
+          "assets/textures/dirt.png",       // layer 2
+          "assets/textures/stone.png",      // layer 3
+          "assets/textures/sand.png",       // layer 4
+      },
+      16, true);
 
   playerModel = std::make_unique<Model>("assets/models/player.obj",
                                         "assets/models/texture_player.png");
@@ -50,6 +55,8 @@ void Scene::init() {
   while (!generated) {
 
     world.update((float)spawnX, (float)spawnZ);
+
+    SDL_Delay(1);
 
     generated = true;
 
@@ -103,6 +110,8 @@ void Scene::init() {
 void Scene::update(float dt, SDL_Window *window) {
 
   time.update(dt);
+
+  fps = (dt > 0.0f) ? 1.0f / dt : 0.0f;
 
   playerController.update(camera, playerTransform, playerRigidbody,
                           cursorLocked, window, time, world);
@@ -159,6 +168,8 @@ void Scene::render() {
       WORLD
   */
 
+  frustum.update(projection, view);
+
   shader->use();
 
   glUniform3f(glGetUniformLocation(shader->id, "cameraPos"),
@@ -186,8 +197,18 @@ void Scene::render() {
   atlas->bind(0);
 
   shader->setInt("atlas", 0);
+  
+  glEnable(GL_DEPTH_TEST);
 
-  world.draw(playerTransform.position.x, playerTransform.position.z);
+  glEnable(GL_CULL_FACE);
+  glCullFace(GL_BACK);
+  glFrontFace(GL_CCW);
+
+  world.draw(
+    playerTransform.position.x,
+    playerTransform.position.z,
+    frustum
+);
 
   /*
       PLAYER MODEL
@@ -206,8 +227,25 @@ void Scene::render() {
   */
 
   glDisable(GL_DEPTH_TEST);
+  glDisable(GL_CULL_FACE);
 
   crosshair.render(Setting::windowWidth, Setting::windowHeight);
 
   glEnable(GL_DEPTH_TEST);
+  glEnable(GL_CULL_FACE);
+
+  int groundY = world.getHeight(
+        (int)playerTransform.position.x,
+        (int)playerTransform.position.z
+    );
+
+    debugOverlay.render(
+        Setting::windowWidth,
+        Setting::windowHeight,
+        fps,
+        playerTransform.position,
+        camera.front,
+        groundY,
+        playerController.debugVisible
+    );
 }

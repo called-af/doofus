@@ -3,102 +3,128 @@
 // ==============================
 
 #pragma once
+#include <string>
 
 class Setting {
 public:
+  // ======================
+  // WINDOW
+  // ======================
 
-    // ======================
-    // WINDOW
-    // ======================
+  static inline int windowWidth = 1280;
+  static inline int windowHeight = 720;
 
-    static inline int windowWidth = 1280;
-    static inline int windowHeight = 720;
+  static inline bool fullscreen = false;
+  static inline bool vsync = true;
 
-    static inline bool fullscreen = false;
-    static inline bool vsync = true;
+  // ======================
+  // FONT
+  // ======================
 
-    // ======================
-    // CAMERA
-    // ======================
+  static inline std::string fontPath =
+      "assets/fonts/JetBrains_Mono,Space_Grotesk/JetBrains_Mono/static/JetBrainsMono-Regular.ttf";
 
-    static inline float fov = 90.0f;
-    static inline float nearPlane = 0.1f;
-    static inline float farPlane = 500.0f;
+  static inline int fontSize = 5;
 
-    static inline float mouseSensitivity = 0.1f;
+  // ======================
+  // CAMERA
+  // ======================
 
-    // ======================
-    // WORLD
-    // ======================
+  static inline float fov = 90.0f;
 
-    static inline int renderDistance = 8;
+  static inline float nearPlane = 0.1f;
+  static inline float farPlane = 500.0f;
 
-    /*
-        WORLD HEIGHT
-    */
+  static inline float mouseSensitivity = 0.1f;
 
-    static inline int worldHeight = 256;
+  static inline float cameraEyeHeight = 1.7f;
 
-    /*
-        SEED
-    */
+  static inline float defaultYaw = -90.0f;
+  static inline float defaultPitch = 0.0f;
 
-    static inline int seed = 1337;
+  static inline float spawnX = 0.0f;
+  static inline float spawnY = 60.0f;
+  static inline float spawnZ = 0.0f;
 
-    /*
-        BIOME
-    */
+  // ======================
+  // WORLD
+  // ======================
 
-    static inline float biomeScale = 0.1f;
+  static inline int renderDistance = 8;
 
-    static inline float plainsChance = 0.5f;
+  /*
+      WORLD HEIGHT
+  */
 
-    /*
-        TERRAIN
-    */
+  static inline int worldHeight = 256;
 
-    static inline int baseTerrainHeight = 45;
+  /*
+      SEED
+  */
 
-    static inline float terrainScale = 0.008f;
+  static inline int seed = 1111;
 
-    static inline int terrainAmplitude = 18;
+  /*
+      BIOME
+  */
 
-    /*
-        MOUNTAIN
-    */
+  static inline float biomeScale = 0.01f;
 
-    static inline float mountainScale = 0.0035f;
+  static inline float plainsChance = 0.5f;
 
-    static inline int mountainHeight = 40;
+  /*
+      TERRAIN
+  */
 
-    /*
-        CAVES
-    */
+  static inline int baseTerrainHeight = 45;
 
-    static inline float caveScale = 0.045f;
+  static inline float terrainScale = 0.008f;
 
-    static inline float caveThreshold = 0.72f;
+  static inline int terrainAmplitude = 18;
 
-    /*
-        PILLARS
-    */
+  /*
+      MOUNTAIN
+  */
 
-    static inline float pillarScale = 0.025f;
+  static inline float mountainScale = 0.0035f;
 
-    static inline float pillarThreshold = 1.15f;
+  static inline int mountainHeight = 40;
 
-    // ======================
-    // FOG
-    // ======================
+  /*
+      CAVES
+  */
 
-    static inline float fogStart = 30.0f;
-    static inline float fogEnd = 300.0f;
+  static inline float caveScale = 0.045f;
 
-    // ======================
-    // PLAYER
-    // ======================
+  static inline float caveThreshold = 0.72f;
 
-    static inline float moveSpeed = 6.0f;
+  /*
+      PILLARS
+  */
 
-    static inline float jumpForce = 9.0f;
+  static inline float pillarScale = 0.025f;
+
+  static inline float pillarThreshold = 1.15f;
+
+  // ======================
+  // FOG
+  // ======================
+
+  static inline float fogStart = 10.0f;
+  static inline float fogEnd = 300.0f;
+
+  // ======================
+  // PLAYER
+  // ======================
+
+  static inline float moveSpeed = 100.0f;
+
+  static inline float jumpForce = 50.0f;
+
+  static inline float gravity = -20.0f;
+
+  static inline float reachDistance = 6.0f;
+
+  static inline int breakCooldown = 5;
+  static inline int placeCooldown = 5;
 };

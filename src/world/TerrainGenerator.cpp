@@ -100,87 +100,87 @@ void TerrainGenerator::generateBaseTerrain(Chunk &chunk) {
   }
 }
 
-  void TerrainGenerator::generateSurface(Chunk & chunk) {
+void TerrainGenerator::generateSurface(Chunk &chunk) {
 
-    for (int x = 0; x < Chunk::SIZE; x++) {
+  for (int x = 0; x < Chunk::SIZE; x++) {
 
-      for (int z = 0; z < Chunk::SIZE; z++) {
+    for (int z = 0; z < Chunk::SIZE; z++) {
 
-        int worldX = chunk.chunkX * Chunk::SIZE + x;
+      int worldX = chunk.chunkX * Chunk::SIZE + x;
 
-        int worldZ = chunk.chunkZ * Chunk::SIZE + z;
+      int worldZ = chunk.chunkZ * Chunk::SIZE + z;
 
-        Biome *biome = BiomeManager::getBiome(worldX, worldZ);
+      Biome *biome = BiomeManager::getBiome(worldX, worldZ);
 
-        int layerDepth = 0;
+      int layerDepth = 0;
 
-        for (int y = Chunk::HEIGHT - 1; y >= 0; y--) {
+      for (int y = Chunk::HEIGHT - 1; y >= 0; y--) {
 
-          /*
-              ONLY STONE
-          */
+        /*
+            ONLY STONE
+        */
 
-          if (chunk.blocks[x][y][z] != BlockType::Stone) {
-            continue;
-          }
+        if (chunk.blocks[x][y][z] != BlockType::Stone) {
+          continue;
+        }
 
-          /*
-              AIR ABOVE
-          */
+        /*
+            AIR ABOVE
+        */
 
-          bool airAbove = (y + 1 >= Chunk::HEIGHT) ||
-                          (chunk.blocks[x][y + 1][z] == BlockType::Air);
+        bool airAbove = (y + 1 >= Chunk::HEIGHT) ||
+                        (chunk.blocks[x][y + 1][z] == BlockType::Air);
 
-          /*
-              TOP SURFACE
-          */
+        /*
+            TOP SURFACE
+        */
 
-          if (airAbove) {
+        if (airAbove) {
 
-            chunk.blocks[x][y][z] = biome->getTopBlock();
+          chunk.blocks[x][y][z] = biome->getTopBlock();
 
-            layerDepth = 4;
-          }
+          layerDepth = 4;
+        }
 
-          /*
-              UNDERGROUND
-          */
+        /*
+            UNDERGROUND
+        */
 
-          else if (layerDepth > 0) {
+        else if (layerDepth > 0) {
 
-            chunk.blocks[x][y][z] = biome->getMiddleBlock();
+          chunk.blocks[x][y][z] = biome->getMiddleBlock();
 
-            layerDepth--;
-          }
+          layerDepth--;
         }
       }
     }
   }
+}
 
-  void TerrainGenerator::generateCaves(Chunk & chunk) {
+void TerrainGenerator::generateCaves(Chunk &chunk) {
 
-    for (int x = 0; x < Chunk::SIZE; x++) {
+  for (int x = 0; x < Chunk::SIZE; x++) {
 
-      for (int z = 0; z < Chunk::SIZE; z++) {
+    for (int z = 0; z < Chunk::SIZE; z++) {
 
-        int worldX = chunk.chunkX * Chunk::SIZE + x;
+      int worldX = chunk.chunkX * Chunk::SIZE + x;
 
-        int worldZ = chunk.chunkZ * Chunk::SIZE + z;
+      int worldZ = chunk.chunkZ * Chunk::SIZE + z;
 
-        for (int y = 5; y < 90; y++) {
+      for (int y = 5; y < 90; y++) {
 
-          float cave = FBMNoise::generate(worldX + y * 2, worldZ + y * 2, 3,
-                                          0.5f, 0.045f, Setting::seed);
+        float cave = FBMNoise::generate(worldX + y * 2, worldZ + y * 2, 3, 0.5f,
+                                        0.045f, Setting::seed);
 
-          /*
-              SMALLER CAVES
-          */
+        /*
+            SMALLER CAVES
+        */
 
-          if (cave > 0.72f) {
+        if (cave > 0.72f) {
 
-            chunk.blocks[x][y][z] = BlockType::Air;
-          }
+          chunk.blocks[x][y][z] = BlockType::Air;
         }
       }
     }
   }
+}

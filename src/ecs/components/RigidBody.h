@@ -1,4 +1,6 @@
 #pragma once
+#include "../../core/Setting.h"
+
 #include <glm/glm.hpp>
 
 struct RigidbodyComponent {
@@ -6,6 +8,6 @@ struct RigidbodyComponent {
 
   bool grounded = false;
 
-  float gravity = -20.0f;
-  float jumpForce = 8.0f;
+  float gravity = Setting::gravity;
+  float jumpForce = Setting::jumpForce;
 };

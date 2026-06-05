@@ -1,8 +1,8 @@
 #include "PlayerController.h"
 
-#include "../platform/input/Input.h"
-
+#include "../core/Setting.h"
 #include "../core/Time.h"
+#include "../platform/input/Input.h"
 #include "../world/World.h"
 #include "../world/block/BlockType.h"
 
@@ -15,6 +15,7 @@
 void PlayerController::update(Camera &camera, TransformComponent &transform,
                               RigidbodyComponent &rigidbody, bool &cursorLocked,
                               SDL_Window *window, Time &time, World &world) {
+
   /*
       CURSOR TOGGLE
   */
@@ -24,15 +25,17 @@ void PlayerController::update(Camera &camera, TransformComponent &transform,
 
     SDL_SetWindowRelativeMouseMode(window, cursorLocked);
   }
+   if (Input::bPressed)
+    debugVisible = !debugVisible;
 
   /*
       CAMERA
   */
 
   if (cursorLocked) {
-    camera.yaw += Input::mouseX * 0.1f;
+    camera.yaw += Input::mouseX * Setting::mouseSensitivity;
 
-    camera.pitch -= Input::mouseY * 0.1f;
+    camera.pitch -= Input::mouseY * Setting::mouseSensitivity;
 
     camera.pitch = glm::clamp(camera.pitch, -89.0f, 89.0f);
 
@@ -65,9 +68,9 @@ void PlayerController::update(Camera &camera, TransformComponent &transform,
   if (glm::length(moveDir) > 0.0f) {
     moveDir = glm::normalize(moveDir);
 
-    rigidbody.velocity.x = moveDir.x * 5.0f;
+    rigidbody.velocity.x = moveDir.x * Setting::moveSpeed;
 
-    rigidbody.velocity.z = moveDir.z * 5.0f;
+    rigidbody.velocity.z = moveDir.z * Setting::moveSpeed;
   } else {
     rigidbody.velocity.x = 0.0f;
     rigidbody.velocity.z = 0.0f;
@@ -105,7 +108,8 @@ void PlayerController::update(Camera &camera, TransformComponent &transform,
       CAMERA FOLLOW
   */
 
-  camera.position = transform.position + glm::vec3(0.0f, 1.7f, 0.0f);
+  camera.position =
+      transform.position + glm::vec3(0.0f, Setting::cameraEyeHeight, 0.0f);
 }
 
 void PlayerController::raycast(Camera &camera, World &world, bool place) {

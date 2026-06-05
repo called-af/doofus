@@ -70,84 +70,68 @@ static inline int getTextureLayerForFace(BlockType blockType, int faceAxis,
 //   faceAxis=1 (Y / top-bottom): rotasi UV berbeda
 // ─────────────────────────────────────────────
 static void emitQuad(std::vector<float> &vertexBuffer, float p0x, float p0y,
-                     float p0z,                       // corner 0 (origin)
-                     float p1x, float p1y, float p1z, // corner 1 (origin + du)
-                     float p2x, float p2y,
-                     float p2z, // corner 2 (origin + du + dv)
-                     float p3x, float p3y, float p3z, // corner 3 (origin + dv)
+                     float p0z, float p1x, float p1y, float p1z,
+                     float p2x, float p2y, float p2z,
+                     float p3x, float p3y, float p3z,
                      int faceAxis, bool isBackFace, int quadWidth,
-                     int quadHeight, // ukuran merged quad dalam blok
-                     int textureLayerId) {
-  // UV di-stretch sesuai ukuran merged quad
-  // sehingga texture tile n-kali untuk n blok
-  float uvWidth = (float)quadWidth;
+                     int quadHeight, int textureLayerId,
+                     int uvOffsetU, int uvOffsetV) {
+  float uvWidth  = (float)quadWidth;
   float uvHeight = (float)quadHeight;
+  float u0 = uvOffsetU,            v0 = uvOffsetV;
+  float u1 = uvOffsetU + uvWidth,  v1 = uvOffsetV + uvHeight;
 
   if (faceAxis == 1) {
-    // ── Y-axis face (top / bottom) ──
-    // NOTE: us/vs perlu ditukar untuk d=0 jika grass side rotation salah
-    // (lihat bug rotasi grass side — us↔vs di sini mungkin perlu di-swap untuk
-    // d=0)
     if (!isBackFace) {
-      // Top face — normal menghadap ke atas (+Y)
-      pushVertex(vertexBuffer, p0x, p0y, p0z, 0, uvHeight, textureLayerId);
-      pushVertex(vertexBuffer, p1x, p1y, p1z, uvWidth, uvHeight,
-                 textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, uvWidth, 0, textureLayerId);
-      pushVertex(vertexBuffer, p0x, p0y, p0z, 0, uvHeight, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, uvWidth, 0, textureLayerId);
-      pushVertex(vertexBuffer, p3x, p3y, p3z, 0, 0, textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, u0, v1, textureLayerId);
+      pushVertex(vertexBuffer, p1x, p1y, p1z, u1, v1, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, u1, v0, textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, u0, v1, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, u1, v0, textureLayerId);
+      pushVertex(vertexBuffer, p3x, p3y, p3z, u0, v0, textureLayerId);
     } else {
-      // Bottom face — normal menghadap ke bawah (-Y)
-      pushVertex(vertexBuffer, p0x, p0y, p0z, 0, uvHeight, textureLayerId);
-      pushVertex(vertexBuffer, p3x, p3y, p3z, 0, 0, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, uvWidth, 0, textureLayerId);
-      pushVertex(vertexBuffer, p0x, p0y, p0z, 0, uvHeight, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, uvWidth, 0, textureLayerId);
-      pushVertex(vertexBuffer, p1x, p1y, p1z, uvWidth, uvHeight,
-                 textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, u0, v1, textureLayerId);
+      pushVertex(vertexBuffer, p3x, p3y, p3z, u0, v0, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, u1, v0, textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, u0, v1, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, u1, v0, textureLayerId);
+      pushVertex(vertexBuffer, p1x, p1y, p1z, u1, v1, textureLayerId);
     }
   } else if (faceAxis == 2) {
-    // ── Z-axis face (front / back) ──
+    // North/South face — tetap sama, sudah benar
     if (!isBackFace) {
-      pushVertex(vertexBuffer, p0x, p0y, p0z, 0, 0, textureLayerId);
-      pushVertex(vertexBuffer, p1x, p1y, p1z, uvWidth, 0, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, uvWidth, uvHeight,
-                 textureLayerId);
-      pushVertex(vertexBuffer, p0x, p0y, p0z, 0, 0, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, uvWidth, uvHeight,
-                 textureLayerId);
-      pushVertex(vertexBuffer, p3x, p3y, p3z, 0, uvHeight, textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, u0, v0, textureLayerId);
+      pushVertex(vertexBuffer, p1x, p1y, p1z, u1, v0, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, u1, v1, textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, u0, v0, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, u1, v1, textureLayerId);
+      pushVertex(vertexBuffer, p3x, p3y, p3z, u0, v1, textureLayerId);
     } else {
-      pushVertex(vertexBuffer, p0x, p0y, p0z, uvWidth, 0, textureLayerId);
-      pushVertex(vertexBuffer, p1x, p1y, p1z, 0, 0, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, 0, uvHeight, textureLayerId);
-      pushVertex(vertexBuffer, p0x, p0y, p0z, uvWidth, 0, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, 0, uvHeight, textureLayerId);
-      pushVertex(vertexBuffer, p3x, p3y, p3z, uvWidth, uvHeight,
-                 textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, u1, v0, textureLayerId);
+      pushVertex(vertexBuffer, p3x, p3y, p3z, u1, v1, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, u0, v1, textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, u1, v0, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, u0, v1, textureLayerId);
+      pushVertex(vertexBuffer, p1x, p1y, p1z, u0, v0, textureLayerId);
     }
-  } else {
-    // ── X-axis face (left / right) ──
+} else {
+    // East/West face (faceAxis == 0) — swap U dan V
     if (!isBackFace) {
-      pushVertex(vertexBuffer, p0x, p0y, p0z, 0, 0, textureLayerId);
-      pushVertex(vertexBuffer, p1x, p1y, p1z, uvWidth, 0, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, uvWidth, uvHeight,
-                 textureLayerId);
-      pushVertex(vertexBuffer, p0x, p0y, p0z, 0, 0, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, uvWidth, uvHeight,
-                 textureLayerId);
-      pushVertex(vertexBuffer, p3x, p3y, p3z, 0, uvHeight, textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, v0, u0, textureLayerId);
+      pushVertex(vertexBuffer, p1x, p1y, p1z, v0, u1, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, v1, u1, textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, v0, u0, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, v1, u1, textureLayerId);
+      pushVertex(vertexBuffer, p3x, p3y, p3z, v1, u0, textureLayerId);
     } else {
-      pushVertex(vertexBuffer, p0x, p0y, p0z, uvWidth, 0, textureLayerId);
-      pushVertex(vertexBuffer, p1x, p1y, p1z, 0, 0, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, 0, uvHeight, textureLayerId);
-      pushVertex(vertexBuffer, p0x, p0y, p0z, uvWidth, 0, textureLayerId);
-      pushVertex(vertexBuffer, p2x, p2y, p2z, 0, uvHeight, textureLayerId);
-      pushVertex(vertexBuffer, p3x, p3y, p3z, uvWidth, uvHeight,
-                 textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, v0, u0, textureLayerId);
+      pushVertex(vertexBuffer, p3x, p3y, p3z, v1, u0, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, v1, u1, textureLayerId);
+      pushVertex(vertexBuffer, p0x, p0y, p0z, v0, u0, textureLayerId);
+      pushVertex(vertexBuffer, p2x, p2y, p2z, v1, u1, textureLayerId);
+      pushVertex(vertexBuffer, p1x, p1y, p1z, v0, u1, textureLayerId);
     }
-  }
+}
 }
 
 // ─────────────────────────────────────────────
@@ -353,10 +337,18 @@ void GreedyMesher::build(Chunk &chunk, Chunk *neighborNX, Chunk *neighborPX,
           corner2z += chunkOffsetZ;
           corner3z += chunkOffsetZ;
 
+          int worldU = quadOrigin[uAxis] + (uAxis == 0 ? chunk.chunkX * Chunk::SIZE
+                                              : uAxis == 2 ? chunk.chunkZ * Chunk::SIZE
+                                                           : 0);
+          int worldV = quadOrigin[vAxis] + (vAxis == 0 ? chunk.chunkX * Chunk::SIZE
+                                              : vAxis == 2 ? chunk.chunkZ * Chunk::SIZE
+                                                           : 0);
+
           emitQuad(chunk.vertices, corner0x, corner0y, corner0z, corner1x,
                    corner1y, corner1z, corner2x, corner2y, corner2z, corner3x,
                    corner3y, corner3z, faceAxis, currentCell.isBackFace,
-                   mergedWidth, mergedHeight, currentCell.textureLayerId);
+                   mergedWidth, mergedHeight, currentCell.textureLayerId,
+                   worldU, worldV);
 
           chunk.empty = false;
 
