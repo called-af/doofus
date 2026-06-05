@@ -1,781 +1,211 @@
-# Documentation
+# Documetation
 
-# Overview
+voxel engine built with C++, OpenGL, and SDL3.
 
-This project is a real-time 3D voxel-based engine built using:
+---
 
-* SDL3 window system
-* OpenGL rendering (GLAD loader)
-* GLM math library
-* CMake build system
-* Custom ECS-style physics system
-* Procedural voxel world (chunk-based)
-* Terrain generation system
-* Dynamic sky rendering
-* First-person camera controller
-* Basic collision system with voxel world integration
+## Stack
 
-The engine is structured around a modular architecture using:
+- **Window**: SDL3
+- **Rendering**: OpenGL (GLAD loader)
+- **Math**: GLM
+- **Build**: CMake + Ninja
+- **Fonts**: JetBrains Mono, Space Grotesk
+- **Image loading**: stb_image
+- **Font rendering**: stb_truetype
 
-```txt
+---
+
+## Architecture
+
+```
 Application
     ↓
 Game
     ↓
 Scene
     ↓
-Renderer / World / Physics / Player
+Renderer / World / Physics / Player / UI
 ```
 
 ---
 
-# Engine Architecture
+## Project Structure
 
-## Application Layer
-
-The `Application` layer handles:
-
-* Window initialization
-* OpenGL context setup
-* Main loop execution
-* Delta time calculation
-* Buffer swapping
-* Event polling
-
-### Main Loop
-
-```cpp
-while (!window->shouldClose())
-{
-    window->pollEvents();
-
-    game.update(dt, window);
-
-    game.render();
-
-    window->swapBuffers();
-}
 ```
+src/
+├── camera/                       # First-person FPS camera
+├── core/                         # Application loop, time system, settings
+├── ecs/
+│   ├── components/               # TransformComponent, RigidbodyComponent
+│   └── systems/                  # PhysicsSystem
+├── game/
+│   ├── Game.*                    # High-level game manager
+│   └── scene/                    # Scene (world, player, physics, rendering)
+├── platform/
+│   ├── input/                    # Keyboard & mouse input abstraction
+│   ├── sdl/                      # SDLWindow (active)
+│   ├── linux/                    # LinuxWindow (placeholder)
+│   ├── windows/                  # Win32Window (placeholder)
+│   ├── IWindow.h                 # Window interface
+│   └── WindowFactory.*           # Backend factory
+├── player/                       # PlayerController (movement, jump, mouse look)
+├── renderer/
+│   ├── opengl/                   # Mesh, Shader, Texture, TextureArray
+│   ├── model/                    # OBJ loader, Model
+│   ├── ui/                       # DebugOverlay, Crosshair, Font
+│   ├── Frustum.*                 # Frustum culling
+│   └── Sky.*                     # Procedural sky rendering
+├── utils/                        # Logging
+└── world/
+    ├── biome/                    # BiomeManager, PlainBiome, DesertBiome
+    ├── block/                    # BlockType, BlockData
+    ├── mesher/                   # GreedyMesher
+    ├── noise/                    # Perlin, FBM, Value, Ridge, Cellular noise
+    ├── Chunk.*                   # 16×64×16 chunk storage
+    ├── ChunkWorker.*             # Async chunk generation
+    ├── TerrainGenerator.*        # Heightmap + layered terrain
+    └── World.*                   # World management, chunk registry
 
----
+assets/
+├── shaders/
+│   ├── block.vert / block.frag   # Terrain
+│   ├── sky.vert / sky.frag       # Atmosphere
+│   └── ui.vert / ui.frag         # HUD
+├── textures/
+│   ├── grass.png
+│   ├── grass_side.png
+│   ├── dirt.png
+│   ├── stone.png
+│   ├── sand.png
+│   └── crosshair.png
+├── models/                       # player.obj, player.mtl
+└── fonts/                        # JetBrains Mono, Space Grotesk
 
-## Game Layer
-
-The `Game` system acts as a high-level game manager.
-
-### Responsibilities
-
-* Scene management
-* Game lifecycle
-* Future scene switching support
-* Gameplay orchestration
-
----
-
-## Scene Layer
-
-The `Scene` system contains the actual gameplay world.
-
-### Responsibilities
-
-* Camera
-* Physics
-* Player
-* Sky rendering
-* Terrain rendering
-* Input handling
-* World simulation
-
-### Advantages
-
-* Modular architecture
-* Easier expansion
-* Cleaner codebase
-* Future support for:
-  * Main menu
-  * Pause scenes
-  * Multiplayer lobby
-  * Loading scenes
-
----
-
-# Window System
-
-The application uses SDL3 to manage:
-
-* OpenGL context creation
-* Window lifecycle
-* Input polling
-* Mouse capture
-* Buffer swapping
-
----
-
-## Features Implemented
-
-### Native Window Features
-
-* Resizable window
-* Native title bar
-* Minimize button
-* Maximize button
-* Close button
-* Window dragging support
-
-### SDL Window Flags
-
-```cpp
-SDL_WINDOW_OPENGL
-| SDL_WINDOW_RESIZABLE
-| SDL_WINDOW_HIGH_PIXEL_DENSITY
+external/
+├── glad/                         # OpenGL loader
+└── stb/                          # stb_image, stb_truetype
 ```
-
----
-
-## OpenGL Context
-
-Current renderer uses:
-
-```txt
-OpenGL 4.6 Core Profile
-```
-
-### Features
-
-* Modern rendering pipeline
-* VSync support
-* Depth testing
-* GLAD loader integration
-
----
-
-# Input System
-
-The engine has a dedicated SDL input abstraction layer.
-
-Folder:
-
-```txt
-src/platform/input
-```
-
----
-
-## Features
-
-* Keyboard state tracking
-* Mouse delta tracking
-* Relative mouse mode
-* ESC cursor toggle
-* Persistent key states
 
 ---
 
 ## Controls
 
-| Key | Action |
-|---|---|
-| W | Move Forward |
-| S | Move Backward |
-| A | Move Left |
-| D | Move Right |
-| SPACE | Jump |
-| Mouse | Look Around |
-| ESC | Toggle Cursor |
+| Key   | Action         |
+|-------|----------------|
+| W     | Move Forward   |
+| S     | Move Backward  |
+| A     | Move Left      |
+| D     | Move Right     |
+| Space | Jump           |
+| Mouse | Look Around    |
+| ESC   | Toggle Cursor  |
+| B     | Debug Overlay  |
 
 ---
 
-# Camera System
+## Debug Overlay
 
-A first-person FPS camera system is implemented.
+- FPS counter
+- Compass (N / S / W / E)
+- Player coordinates (X, Y, Z)
 
-Files:
+---
 
-```txt
-src/camera/Camera.*
+## World System
+
+### Chunk
+
+- Size: **16 × 64 × 16** blocks
+- Storage: `BlockType blocks[SIZE][HEIGHT][SIZE]`
+
+### Terrain Layers
+
+| Layer       | Block     |
+|-------------|-----------|
+| Surface     | Grass     |
+| Underground | Dirt      |
+| Deep        | Stone     |
+
+### Noise Stack
+
+- Perlin, FBM, Value, Ridge, Cellular — composable noise pipeline
+- Chunk-independent deterministic generation
+
+### Mesh Generation
+
+- Greedy meshing (`GreedyMesher`)
+- Face culling — only visible faces are emitted
+- `GL_TEXTURE_2D_ARRAY` — per-face texture layer indexing
+- Vertex format: `(x, y, z, u, v, layer)`
+- Async chunk worker (`ChunkWorker`)
+
+### Biomes
+
+| Biome    | Status  |
+| ----------| ---------|
+| Plain    | Active  |
+| Desert   | Active  |
+| Mountain | Planned |
+| Cave     | Planned |
+
+---
+
+## Rendering Pipeline
+
 ```
-
----
-
-## Features
-
-* Yaw rotation
-* Pitch rotation
-* Mouse sensitivity
-* View matrix generation
-* Direction vector recalculation
-* FPS-style movement
-
----
-
-## Camera Math
-
-### Front Vector Calculation
-
-```cpp
-direction.x =
-cos(glm::radians(yaw))
-* cos(glm::radians(pitch));
-
-direction.y =
-sin(glm::radians(pitch));
-
-direction.z =
-sin(glm::radians(yaw))
-* cos(glm::radians(pitch));
-```
-
----
-
-# Player Controller
-
-Player movement is handled separately from physics.
-
-Files:
-
-```txt
-src/player/PlayerController.*
-```
-
----
-
-## Features
-
-* FPS movement
-* Jumping
-* Mouse look
-* Cursor lock
-* Camera follow
-* Velocity-based movement
-
----
-
-# Physics System
-
-Physics is integrated with the voxel world system.
-
-Files:
-
-```txt
-src/ecs/systems/PhysicsSystem.*
-```
-
----
-
-## Features
-
-* Gravity simulation
-* Velocity integration
-* Ground detection
-* Jump force
-* Collision handling
-* Horizontal movement damping
-
----
-
-## Physics Flow
-
-```txt
-Input
-    ↓
-Velocity Update
-    ↓
-Gravity
-    ↓
-Collision Detection
-    ↓
-Position Correction
-```
-
----
-
-# ECS-style Architecture
-
-The engine follows a lightweight ECS-inspired structure.
-
-Folders:
-
-```txt
-src/ecs/components
-src/ecs/systems
-```
-
----
-
-## Components
-
-| Component | Purpose |
-|---|---|
-| TransformComponent | Position data |
-| RigidbodyComponent | Physics data |
-
----
-
-## Systems
-
-| System | Purpose |
-|---|---|
-| PhysicsSystem | Physics simulation |
-
----
-
-# Voxel World System
-
-This is the core system of the engine.
-
-The world is chunk-based and procedurally generated.
-
----
-
-# World Structure
-
-```txt
-World
- ├── Chunk (-2, -2)
- ├── Chunk (-1, -2)
- ├── Chunk (0, 0)
- ├── Chunk (1, 0)
- └── Chunk (2, 2)
-```
-
----
-
-## Chunk System
-
-Each chunk contains:
-
-* SIZE = 16
-* HEIGHT = 64
-* 3D block array storage
-
-### Block Storage
-
-```cpp
-BlockType blocks[SIZE][HEIGHT][SIZE];
-```
-
----
-
-# Procedural Terrain Generation
-
-Terrain generation uses procedural mathematical functions.
-
----
-
-## Current Terrain Logic
-
-```cpp
-float noise =
-sin(worldX * 0.12f)
-* cos(worldZ * 0.12f);
-
-int height =
-20 + (noise * 8);
-```
-
----
-
-## Terrain Features
-
-* Hills
-* Smooth variation
-* Deterministic generation
-* Chunk-independent consistency
-
----
-
-# Terrain Generator System
-
-A modular terrain generator system exists.
-
-Files:
-
-```txt
-renderer/world/TerrainGenerator.*
-```
-
----
-
-## Features
-
-* Heightmap generation
-* Layered terrain
-* Chunk-aware coordinates
-* Extensible generation pipeline
-
----
-
-## Terrain Layers
-
-| Layer | Block Type |
-|---|---|
-| Surface | Grass |
-| Underground | Dirt |
-| Deep Layer | Stone |
-
----
-
-# Biome System
-
-Biome architecture already exists.
-
-Files:
-
-```txt
-renderer/world/biome
-```
-
----
-
-## Planned Biomes
-
-* Grasslands
-* Desert
-* Mountains
-* Snow
-* Ocean
-
----
-
-## Planned Biome Effects
-
-* Height scaling
-* Terrain roughness
-* Noise frequency
-* Block variation
-
----
-
-# Chunk Mesh Generation
-
-Chunks generate optimized meshes.
-
----
-
-## Features
-
-* Vertex batching
-* Face culling
-* Static mesh generation
-* GPU upload optimization
-
----
-
-# Face Culling Optimization
-
-Only visible faces are rendered.
-
----
-
-## Example
-
-```cpp
-if (isAir(x, y + 1, z))
-    addFace(top);
-```
-
----
-
-## Advantages
-
-* Lower vertex count
-* Better rendering performance
-* Lower VRAM usage
-* Faster chunk rendering
-
----
-
-# Texture System
-
-Texture abstraction layer exists.
-
-Files:
-
-```txt
-renderer/Texture.*
-```
-
----
-
-## Features
-
-* PNG loading
-* OpenGL texture upload
-* Texture binding abstraction
-* Texture atlas rendering
-
----
-
-# Texture Atlas
-
-Voxel textures use a shared atlas.
-
-File:
-
-```txt
-assets/textures/atlas.png
-```
-
----
-
-## Advantages
-
-* Reduced draw calls
-* Better batching
-* Fewer texture switches
-* Better GPU performance
-
----
-
-# Shader System
-
-Modern GLSL shader abstraction exists.
-
-Files:
-
-```txt
-renderer/Shader.*
-```
-
----
-
-## Features
-
-* Shader loading
-* Compilation
-* Uniform management
-* Program linking
-
----
-
-## Current Shaders
-
-| Shader | Purpose |
-|---|---|
-| block.vert | Terrain vertex shader |
-| block.frag | Terrain fragment shader |
-| sky.vert | Sky vertex shader |
-| sky.frag | Sky atmosphere shader |
-
----
-
-# Dynamic Sky System
-
-The engine supports procedural sky rendering.
-
-Files:
-
-```txt
-renderer/Sky.*
-```
-
----
-
-## Features
-
-* Fullscreen sky rendering
-* Atmospheric gradients
-* Horizon blending
-* Dynamic color transitions
-
----
-
-# Day-Night Cycle System
-
-Sky colors are controlled by the `Time` system.
-
-Files:
-
-```txt
-core/Time.*
-```
-
----
-
-## Features
-
-* Dynamic sky colors
-* Smooth transitions
-* Time progression
-* Horizon interpolation
-
----
-
-## Sky Rendering Flow
-
-```txt
-Time System
-    ↓
-Sky Colors
-    ↓
-Sky Shader
-    ↓
-Rendered Atmosphere
-```
-
----
-
-# Collision System
-
-Physics interacts directly with voxel terrain.
-
----
-
-## Collision Logic
-
-```cpp
-world.isSolid(x, y, z)
-```
-
-The system:
-
-1. Converts world coordinates
-2. Finds chunk
-3. Converts to local chunk coordinates
-4. Checks block solidity
-
----
-
-# Chunk Coordinate Conversion
-
-World → Chunk coordinate conversion:
-
-```cpp
-chunkX = floor(x / Chunk::SIZE);
-
-localX =
-x - chunkX * Chunk::SIZE;
-```
-
----
-
-## Features
-
-* Negative coordinate support
-* Infinite-world-ready foundation
-* Dynamic chunk lookup
-
----
-
-# Infinite World Foundation
-
-Current architecture already supports future infinite terrain.
-
----
-
-## Planned Expansion
-
-```txt
-Player Movement
-    ↓
-Chunk Streaming
-    ↓
-Chunk Generation
-    ↓
-Chunk Unloading
-```
-
----
-
-# Rendering Pipeline
-
-```txt
-Application Loop
-    ↓
 Input Update
     ↓
 Camera Update
     ↓
 Physics Update
     ↓
-World Rendering
+Frustum Culling
     ↓
-Sky Rendering
+World Rendering  (greedy mesh + texture array)
+    ↓
+Sky Rendering    (procedural atmosphere)
+    ↓
+UI Rendering     (crosshair, debug overlay)
     ↓
 Swap Buffers
 ```
 
 ---
 
-# Delta Time System
+## Physics
 
-The engine uses delta-time simulation.
-
----
-
-## Advantages
-
-* FPS-independent movement
-* Stable physics
-* Smooth camera movement
-* Consistent gameplay timing
-
----
-
-## Delta Time Example
-
-```cpp
-float dt =
-(now - last)
-/ SDL_GetPerformanceFrequency();
+```
+Input
+    ↓
+Velocity Update
+    ↓
+Gravity
+    ↓
+Collision Detection  (world.isSolid)
+    ↓
+Position Correction
 ```
 
 ---
 
-# Window Abstraction Layer
+## Build
 
-The engine supports backend abstraction.
-
-Folder:
-
-```txt
-src/platform
+```bash
+./build.sh
+./run.sh
 ```
 
----
-
-## Current Backends
-
-| Backend | Status |
-|---|---|
-| SDLWindow | Active |
-| LinuxWindow | Placeholder |
-| Win32Window | Placeholder |
+Requires: CMake, Ninja, SDL3, OpenGL.
 
 ---
 
-## Advantages
+## Performance Notes
 
-* Multi-platform foundation
-* Easier backend swapping
-* Cleaner platform separation
+- Chunk mesh caching
+- Greedy meshing reduces vertex count
+- Face culling — no hidden faces emitted
+- Texture atlas batching → fewer draw calls
+- Frustum culling — off-screen chunks skipped
+- Delta-time simulation — FPS-independent movement
 
----
-
-# Project Structure
-
-```txt
-src/
-├── camera
-├── core
-├── ecs
-├── game
-├── platform
-├── player
-├── renderer
-└── utils
-```
-
----
-
-# Memory & Performance Notes
-
-Current optimizations:
-
-* Chunk mesh caching
-* Face culling
-* Static chunk rendering
-* Texture atlas batching
-* OpenGL depth testing
-
----
