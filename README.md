@@ -205,9 +205,9 @@ Requires: CMake, Ninja, SDL3, OpenGL.
 ## Performance Notes
 
 - Chunk mesh caching
+- Chunk cancelling
 - Greedy meshing reduces vertex count
 - Face culling — no hidden faces emitted
-- Texture atlas batching → fewer draw calls
 - Frustum culling — off-screen chunks skipped
 - Delta-time simulation — FPS-independent movement
 
