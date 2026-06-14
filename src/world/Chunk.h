@@ -3,6 +3,7 @@
 #include "../renderer/opengl/Mesh.h"
 #include "block/BlockType.h"
 #include <glm/glm.hpp>
+#include "../core/Setting.h"
 
 #include <atomic>
 #include <memory>
@@ -15,7 +16,7 @@ class GreedyMesher;
 class Chunk {
 public:
   static constexpr int SIZE = 16;
-  static constexpr int HEIGHT = 128;
+  static constexpr int HEIGHT = Setting::worldHeight;
 
   int heightMap[SIZE][SIZE];
 

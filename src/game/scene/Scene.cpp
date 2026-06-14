@@ -37,11 +37,8 @@ void Scene::init() {
       },
       16, true);
 
-  playerShader =
-    std::make_unique<Shader>(
-        "assets/shaders/model.vert",
-        "assets/shaders/model.frag"
-    );
+  playerShader = std::make_unique<Shader>("assets/shaders/model.vert",
+                                          "assets/shaders/model.frag");
 
   playerModel = std::make_unique<Model>("assets/models/player.obj",
                                         "assets/models/texture_player.png");
@@ -50,12 +47,29 @@ void Scene::init() {
   */
 
   camera.position = playerTransform.position;
-  world.update(0.0f, 0.0f);
+
+  glm::mat4 projection = glm::perspective(
+      glm::radians(Setting::fov),
+      (float)Setting::windowWidth / (float)Setting::windowHeight,
+      Setting::nearPlane, Setting::farPlane);
+  glm::mat4 view = camera.getViewMatrix();
+  frustum.update(projection, view);
+
+  // ISI TRUE di argumen paling belakang (karena masih fase init/loading)
+  world.update(camera.position, camera.front, frustum, true);
 }
 
 void Scene::update(float dt, SDL_Window *window) {
   if (isLoading) {
-    world.update(0.0f, 0.0f);
+    glm::mat4 projection = glm::perspective(
+        glm::radians(Setting::fov),
+        (float)Setting::windowWidth / (float)Setting::windowHeight,
+        Setting::nearPlane, Setting::farPlane);
+    glm::mat4 view = camera.getViewMatrix();
+    frustum.update(projection, view);
+
+    // ISI TRUE di argumen paling belakang (karena sedang isLoading)
+    world.update(camera.position, camera.front, frustum, true);
 
     bool allReady = true;
     for (int x = -3; x <= 3 && allReady; x++) {
@@ -76,13 +90,20 @@ void Scene::update(float dt, SDL_Window *window) {
   }
 
   time.update(dt);
-
   fps = (dt > 0.0f) ? 1.0f / dt : 0.0f;
 
   playerController.update(camera, playerTransform, playerRigidbody,
                           cursorLocked, window, time, world);
 
-  world.update(playerTransform.position.x, playerTransform.position.z);
+  glm::mat4 projection = glm::perspective(
+      glm::radians(Setting::fov),
+      (float)Setting::windowWidth / (float)Setting::windowHeight,
+      Setting::nearPlane, Setting::farPlane);
+  glm::mat4 view = camera.getViewMatrix();
+  frustum.update(projection, view);
+
+  // ISI FALSE di argumen paling belakang (karena sudah masuk gameplay!)
+  world.update(camera.position, camera.front, frustum, false);
 
   PhysicsSystem::update(playerTransform, playerRigidbody, world, dt);
 }
@@ -183,45 +204,21 @@ void Scene::render() {
       PLAYER MODEL
   */
 
- glm::mat4 playerMatrix =
-    glm::translate(
-        glm::mat4(1.0f),
-        playerTransform.position
-    );
+  glm::mat4 playerMatrix =
+      glm::translate(glm::mat4(1.0f), playerTransform.position);
 
-playerShader->use();
+  playerShader->use();
 
-glUniformMatrix4fv(
-    glGetUniformLocation(
-        playerShader->id,
-        "model"
-    ),
-    1,
-    GL_FALSE,
-    glm::value_ptr(playerMatrix)
-);
+  glUniformMatrix4fv(glGetUniformLocation(playerShader->id, "model"), 1,
+                     GL_FALSE, glm::value_ptr(playerMatrix));
 
-glUniformMatrix4fv(
-    glGetUniformLocation(
-        playerShader->id,
-        "view"
-    ),
-    1,
-    GL_FALSE,
-    glm::value_ptr(view)
-);
+  glUniformMatrix4fv(glGetUniformLocation(playerShader->id, "view"), 1,
+                     GL_FALSE, glm::value_ptr(view));
 
-glUniformMatrix4fv(
-    glGetUniformLocation(
-        playerShader->id,
-        "projection"
-    ),
-    1,
-    GL_FALSE,
-    glm::value_ptr(projection)
-);
+  glUniformMatrix4fv(glGetUniformLocation(playerShader->id, "projection"), 1,
+                     GL_FALSE, glm::value_ptr(projection));
 
-playerModel->draw(*playerShader);
+  playerModel->draw(*playerShader);
 
   /*
       CROSSHAIR

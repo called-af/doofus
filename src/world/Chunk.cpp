@@ -39,6 +39,9 @@ void Chunk::uploadMesh() {
         mesh = std::make_unique<Mesh>(vertices.data(), size);
     else
         mesh->update(vertices.data(), size);
+
+    vertices.clear();
+    vertices.shrink_to_fit();
 }
 
 void Chunk::draw() {

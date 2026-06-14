@@ -5,6 +5,7 @@
 class TerrainGenerator {
 public:
   static void generate(Chunk &chunk);
+  
 
 private:
   static void generateBaseTerrain(Chunk &chunk);

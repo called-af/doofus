@@ -8,6 +8,7 @@
 #include "../core/Setting.h"
 
 #include <cmath>
+#include <iostream>
 
 void TerrainGenerator::generate(Chunk &chunk) {
 
@@ -37,7 +38,6 @@ void TerrainGenerator::generate(Chunk &chunk) {
   generateSurface(chunk);
 
   generateCaves(chunk);
-
 }
 
 void TerrainGenerator::generateBaseTerrain(Chunk &chunk) {
@@ -61,7 +61,8 @@ void TerrainGenerator::generateBaseTerrain(Chunk &chunk) {
           PEAKS
       */
 
-      height += (int)(terrain.peaks * Setting::peakHeight);
+      float peakFactor = std::pow(terrain.peaks, 2.0f);
+      height += (int)(peakFactor * Setting::peakHeight);
 
       /*
           EROSION
@@ -87,6 +88,12 @@ void TerrainGenerator::generateBaseTerrain(Chunk &chunk) {
 
       if (height >= Chunk::HEIGHT) {
         height = Chunk::HEIGHT - 1;
+      }
+
+      if (height >= Chunk::HEIGHT - 1) {
+        // Log ini akan muncul di konsol jika gunung Anda terkena batas atas
+        std::cout << "Warning: Terrain clamped at X:" << worldX
+                  << " Z:" << worldZ << std::endl;
       }
 
       chunk.heightMap[x][z] = height;

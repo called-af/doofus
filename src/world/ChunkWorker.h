@@ -71,4 +71,4 @@ private:
 
     std::queue<GeneratedChunk> finished;
     std::queue<MeshResult> finishedMeshes;
-};
+}; 
