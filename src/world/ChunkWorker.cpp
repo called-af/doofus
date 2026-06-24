@@ -100,7 +100,6 @@ void ChunkWorker::run() {
       if (!running.load())
         break;
 
-      // KUNCI SOLUSI 4: Menentukan jenis task secara adil (Interleaving)
       if (!meshRequests.empty() && !requests.empty()) {
         int chance = dis(gen);
         if (chance <= 70) { // 70% Ambil Mesh
@@ -113,8 +112,6 @@ void ChunkWorker::run() {
           hasTerrain = true;
         }
       }
-      // Jika hanya salah satu antrean yang terisi, langsung ambil tanpa
-      // tebak-tebakan
       else if (!meshRequests.empty()) {
         meshReq = std::move(const_cast<MeshRequest &>(meshRequests.top()));
         meshRequests.pop();
@@ -130,10 +127,8 @@ void ChunkWorker::run() {
       if (meshReq.generation != generation.load())
         continue;
 
-      // Sediakan kontainer lokal di stack milik worker thread sendiri
       std::vector<float> localVertices;
 
-      // Biarkan mesher mengisi kontainer lokal ini
       GreedyMesher::build(*meshReq.mainChunk, meshReq.nNX.get(),
                           meshReq.nPX.get(), meshReq.nNZ.get(),
                           meshReq.nPZ.get(), localVertices);
@@ -143,7 +138,6 @@ void ChunkWorker::run() {
 
       MeshResult result;
       result.chunk = meshReq.chunk;
-      // Pindahkan kepemilikan memori secara aman
       result.vertices = std::move(localVertices);
       result.generation = meshReq.generation;
 
@@ -151,7 +145,6 @@ void ChunkWorker::run() {
       finishedMeshes.push(std::move(result));
     }
 
-    //  Terrain
     if (hasTerrain) {
       if (req.generation != generation.load())
         continue;
