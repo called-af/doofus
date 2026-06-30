@@ -35,7 +35,8 @@ void Sky::setupMesh() {
 }
 
 void Sky::Render(const glm::vec3 &topColor, const glm::vec3 &horizonColor,
-                 const glm::vec3 &bottomColor) {
+                 const glm::vec3 &bottomColor, const glm::vec3 &sunDir,
+                 const glm::vec3 &moonDir) {
   glDepthMask(GL_FALSE);
   glDisable(GL_DEPTH_TEST);
 
@@ -44,6 +45,8 @@ void Sky::Render(const glm::vec3 &topColor, const glm::vec3 &horizonColor,
   shader->setVec3("uTopColor", topColor);
   shader->setVec3("uHorizonColor", horizonColor);
   shader->setVec3("uBottomColor", bottomColor);
+  shader->setVec3("uSunDir", sunDir);
+  shader->setVec3("uMoonDir", moonDir);
 
   glBindVertexArray(VAO);
   glDrawArrays(GL_TRIANGLES, 0, 6);

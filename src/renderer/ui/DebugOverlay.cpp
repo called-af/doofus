@@ -79,4 +79,8 @@ void DebugOverlay::render(int screenWidth, int screenHeight, float fps,
 
   font.drawText("Biome: " + biomeName, startX, startY, scale, white,
                 screenWidth, screenHeight);
+
+  startY += lineH;
+  font.drawText("Shadow Dist: " + std::to_string(Setting::shadowDistance) + " chks ([/])",
+                startX, startY, scale, white, screenWidth, screenHeight);
 }

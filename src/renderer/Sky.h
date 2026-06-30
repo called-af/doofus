@@ -12,7 +12,8 @@ public:
   void Init();
 
   void Render(const glm::vec3 &topColor, const glm::vec3 &horizonColor,
-              const glm::vec3 &bottomColor);
+              const glm::vec3 &bottomColor, const glm::vec3 &sunDir,
+              const glm::vec3 &moonDir);
 
 public:
   GLuint VAO = 0;

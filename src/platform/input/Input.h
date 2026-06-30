@@ -13,6 +13,8 @@ public:
     static bool space;
     static bool escape;
     static bool escapePressed;
+    static bool bracketLeftPressed;
+    static bool bracketRightPressed;
 
     static float mouseX;
     static float mouseY;

@@ -51,7 +51,8 @@ public:
   // WORLD
   // ======================
 
-  static inline int renderDistance = 24;
+  static inline int renderDistance = 32;
+  static inline int shadowDistance = 8;
 
   /*
       WORLD HEIGHT
@@ -64,6 +65,8 @@ public:
   */
 
   static inline int seed = 1234;
+
+  static inline float daySpeed = 50.0f;
 
   /*
       BIOME
@@ -226,7 +229,7 @@ public:
   // PLAYER
   // ======================
 
-  static inline float moveSpeed = 100.0f;
+  static inline float moveSpeed = 40.0f;
 
   static inline float jumpForce = 70.0f;
 

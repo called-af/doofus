@@ -14,7 +14,7 @@ class PlayerController {
 public:
   void update(Camera &camera, TransformComponent &transform,
               RigidbodyComponent &rigidbody, bool &cursorLocked,
-              SDL_Window *window, Time &time, World &world);
+              SDL_Window *window, Time &time, World &world, float dt);
 
 public:
   bool debugVisible = false;

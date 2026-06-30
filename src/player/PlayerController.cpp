@@ -14,7 +14,7 @@
 
 void PlayerController::update(Camera &camera, TransformComponent &transform,
                               RigidbodyComponent &rigidbody, bool &cursorLocked,
-                              SDL_Window *window, Time &time, World &world) {
+                              SDL_Window *window, Time &time, World &world, float dt) {
 
   /*
       CURSOR TOGGLE
@@ -27,6 +27,13 @@ void PlayerController::update(Camera &camera, TransformComponent &transform,
   }
    if (Input::bPressed)
     debugVisible = !debugVisible;
+
+  if (Input::bracketLeftPressed) {
+    Setting::shadowDistance = std::max(1, Setting::shadowDistance - 1);
+  }
+  if (Input::bracketRightPressed) {
+    Setting::shadowDistance = std::min(Setting::renderDistance, Setting::shadowDistance + 1);
+  }
 
   /*
       CAMERA
@@ -89,18 +96,18 @@ void PlayerController::update(Camera &camera, TransformComponent &transform,
   */
 
   if (Input::left_click) {
-    if (time.ticks - lastBreakTick >= breakCooldown) {
+    if (time.realTicks - lastBreakTick >= breakCooldown) {
       raycast(camera, world, false);
 
-      lastBreakTick = time.ticks;
+      lastBreakTick = time.realTicks;
     }
   }
 
   if (Input::right_click) {
-    if (time.ticks - lastPlaceTick >= placeCooldown) {
+    if (time.realTicks - lastPlaceTick >= placeCooldown) {
       raycast(camera, world, true);
 
-      lastPlaceTick = time.ticks;
+      lastPlaceTick = time.realTicks;
     }
   }
 
