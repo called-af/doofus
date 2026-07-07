@@ -1,6 +1,6 @@
-# Documetation
+# Documentation
 
-voxel engine built with C++, OpenGL, and SDL3.
+A voxel engine built with C++, OpenGL, and SDL3.
 
 ---
 
@@ -61,10 +61,10 @@ src/
     ├── biome/                    # BiomeManager, PlainBiome, DesertBiome
     ├── block/                    # BlockType, BlockData
     ├── terrain/                  # Terrain sampler/sample (continentalness, peaks, erosion, river)
-    ├── climate/                  # Climate sampler/samplpe (humidity, temprature) 
+    ├── climate/                  # Climate sampler/sample (humidity, temperature) 
     ├── mesher/                   # GreedyMesher
     ├── noise/                    # Perlin, FBM, Value, Ridge, Cellular noise
-    ├── Chunk.*                   # 16×64×16 chunk storage
+    ├── Chunk.*                   # 16×256×16 chunk storage
     ├── ChunkWorker.*             # Async chunk generation
     ├── TerrainGenerator.*        # Heightmap + layered terrain
     └── World.*                   # World management, chunk registry
@@ -118,7 +118,7 @@ external/
 
 ### Chunk
 
-- Size: **16 × 64 × 16** blocks
+- Size: **16 × 256 × 16** blocks
 - Storage: `BlockType blocks[SIZE][HEIGHT][SIZE]`
 
 ### Terrain Layers

@@ -59,13 +59,15 @@ add_executable(doofus
     # world
     src/world/Chunk.cpp
     src/world/noise/Noise.cpp
-    # src/world/noise/PerlinNoise.cpp
-    # src/world/noise/CellularNoise.cpp
+    src/world/noise/PerlinNoise.cpp
+    src/world/noise/CellularNoise.cpp
     src/world/noise/FBMNoise.cpp
     src/world/noise/RidgeNoise.cpp
-    # src/world/noise/ValueNoise.cpp
+    src/world/noise/ValueNoise.cpp
     src/world/TerrainGenerator.cpp
     src/world/mesher/GreedyMesher.cpp
+    src/world/mesher/LODMesher.cpp
+    src/world/LODChunk.cpp
     src/world/World.cpp
     src/world/ChunkWorker.cpp
     src/world/biome/BiomeManager.cpp

@@ -6,11 +6,13 @@ in vec3  FragPos;
 in float FaceLight;
 in vec3  Normal;
 in vec4  FragPosLightSpace;
+in float vNdotL;    // pre-computed NdotL from vertex shader
+in float vSpawnT;   // 0..1 spawn animation progress
 
 out vec4 FragColor;
 
 uniform sampler2DArray atlas;
-uniform sampler2D shadowMap;
+uniform sampler2D      shadowMap;
 
 uniform vec3  cameraPos;
 uniform vec3  fogColor;
@@ -22,85 +24,125 @@ uniform vec3  uLightColor;
 uniform vec3  uAmbientColor;
 uniform float uShadowDistance;
 uniform int   uShadowsEnabled;
+uniform int   uIsLOD;
 
-// Selective vibrance boost: raises saturation of less-saturated colors without blowing out already saturated ones
-vec3 boostVibrance(vec3 color, float amount) {
-    float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-    float maxChan = max(color.r, max(color.g, color.b));
-    float sat = maxChan - luminance;
-    return mix(vec3(luminance), color, 1.0 + amount * (1.0 - sat));
+// ─────────────────────────────────────────────────────────────────────────────
+//  PCF Shadow — smooth, follows object shape, elongates based on sun position
+//
+//  PCF (Percentage Closer Filtering): samples depth in a 3×3 neighbourhood,
+//  averages the results. Produces shadow with soft edges that follow
+//  geometry shape, not pixelated per texel.
+//
+//  Bias: linear between 0.0003 (top face, NdotL=1) and 0.002 (side face, NdotL=0).
+//  Small but sufficient — shadow sticks tightly to the top surface of blocks.
+// ─────────────────────────────────────────────────────────────────────────────
+float calculateShadow(vec4 fragPosLightSpace, float ndotl)
+{
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    projCoords = projCoords * 0.5 + 0.5;
+
+    // Outside shadow frustum → no shadow
+    if (projCoords.z > 1.0 ||
+        projCoords.x < 0.0 || projCoords.x > 1.0 ||
+        projCoords.y < 0.0 || projCoords.y > 1.0)
+        return 0.0;
+
+    // Linear bias: very small for top face, slightly larger for side faces
+    float bias = mix(0.0003, 0.002, 1.0 - clamp(ndotl, 0.0, 1.0));
+
+    // PCF 3×3: sample 9 points around projCoords, average the results
+    // textureSize(shadowMap, 0) = shadow map resolution → texelSize = 1 texel
+    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+    float shadow = 0.0;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
+            shadow += (projCoords.z - bias > pcfDepth) ? 1.0 : 0.0;
+        }
+    }
+    shadow /= 9.0;
+
+    return shadow;
 }
 
-float calculateShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir)
+// ─────────────────────────────────────────────────────────────────────────────
+//  Phong Specular
+//
+//  reflect(-L, N) → R, kemudian pow(max(dot(V,R), 0), shininess)
+//  For voxel terrain: low shininess (16) and small intensity (0.12)
+//  to avoid a too "plastic" appearance.
+// ─────────────────────────────────────────────────────────────────────────────
+vec3 calcSpecular(vec3 normal, vec3 lightDir, vec3 viewDir, vec3 lightColor)
 {
-    // Next-level optimization: Orthographic projection has w = 1.0, so we skip the expensive float division!
-    vec3 projCoords = fragPosLightSpace.xyz * 0.5 + 0.5;
-    
-    // Out of shadow map bounds
-    if(projCoords.z > 1.0 || projCoords.x < 0.0 || projCoords.x > 1.0 || 
-       projCoords.y < 0.0 || projCoords.y > 1.0) {
-        return 0.0; 
-    }
-    
-    // Precise constant bias relative to the depth range (400.0) to prevent both shadow acne and peter-panning (detached shadows)
-    float bias = max(0.0006 * (1.0 - dot(normal, lightDir)), 0.00015);
-    
-    // Beautiful retro pixelated hard shadow (single texture fetch, extremely fast!)
-    float shadowDepth = texture(shadowMap, projCoords.xy).r;
-    float shadow = (projCoords.z - bias > shadowDepth) ? 1.0 : 0.0;
-    
-    return shadow;
+    vec3 reflectDir = reflect(-lightDir, normal);
+    float spec      = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
+    return lightColor * spec * 0.12;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Exponential-squared fog
+// ─────────────────────────────────────────────────────────────────────────────
+float calcFogFactor(float dist, float fStart, float fEnd)
+{
+    if (dist <= fStart) return 1.0;
+    float t = clamp((dist - fStart) / (fEnd - fStart), 0.0, 1.0);
+    return 1.0 - t * t;
 }
 
 void main()
 {
     vec4 texColor = texture(atlas, vec3(fract(TexCoord), TexLayer));
+    if (texColor.a < 0.01) discard;
 
-    // Directional diffuse from active light source
-    float NdotL = max(dot(Normal, uLightDir), 0.0);
-    
-    // Skip shadow calculations completely at night for next-level optimization!
+    // ─── Shadow ───────────────────────────────────────────────────────────
     float shadow = 0.0;
-    if (uShadowsEnabled == 1) {
-        shadow = calculateShadow(FragPosLightSpace, Normal, uLightDir);
-        
-        // Fade shadow near the shadow distance boundary
-        float distToPlayer = length(FragPos - cameraPos);
-        float shadowFadeStart = uShadowDistance * 0.75;
-        float shadowFade = clamp((uShadowDistance - distToPlayer) / (uShadowDistance - shadowFadeStart), 0.0, 1.0);
-        shadow *= shadowFade;
+    if (uIsLOD == 0 && uShadowsEnabled == 1) {
+        shadow = calculateShadow(FragPosLightSpace, vNdotL);
     }
-    
-    // Direct light contribution (soften shadows slightly so they aren't pitch black)
-    float shadowStrength = 0.82;
-    vec3 directLight = uLightColor * NdotL * (1.0 - shadow * shadowStrength);
-    
-    // Total light (ambient + direct)
-    vec3 light = uAmbientColor + directLight;
-    
-    // Apply baked face light multiplier (flat AO + face directional shading)
-    light *= FaceLight;
-    
-    // Ensure minimum brightness for visibility in dark/caves
-    light = max(light, vec3(0.06));
-    
-    // Final lit color
-    vec3 lit = texColor.rgb * light;
 
-    // --- High-Fidelity Color Grading ---
-    // 1. Boost vibrance selectively by 65% for punchy voxel tones
-    lit = boostVibrance(lit, 0.65);
-    // 2. Extra 25% overall saturation boost to prevent washed-up textures
-    float luminance = dot(lit, vec3(0.2126, 0.7152, 0.0722));
-    lit = mix(vec3(luminance), lit, 1.25);
-    
-    // Clean, natural contrast/gamma lift (1.1) to keep shadows visible and colors rich
-    lit = pow(lit, vec3(1.0 / 1.1));
+    // ─── Diffuse (Lambert) ────────────────────────────────────────────────
+    // vNdotL already computed in vertex shader
+    vec3 direct = uLightColor * vNdotL * (1.0 - shadow * 0.85);
 
-    // Fog calculation
-    float dist = length(FragPos - cameraPos);
-    float fog  = clamp((fogEnd - dist) / (fogEnd - fogStart), 0.0, 1.0);
-    vec3 fogged = mix(fogColor, lit, fog);
+    // ─── Phong Specular ─────────────────────────────────────────────────
+    // Only for full-detail chunks (not LOD) and not for surfaces
+    // facing downward (faceIdx bottom → aLight < 0.60)
+    vec3 specular = vec3(0.0);
+    if (uIsLOD == 0 && vNdotL > 0.0 && uShadowsEnabled == 1) {
+        vec3 viewDir = normalize(cameraPos - FragPos);
+        specular = calcSpecular(Normal, uLightDir, viewDir, uLightColor);
+        // Reduce specular in shadowed areas
+        specular *= (1.0 - shadow);
+    }
 
-    FragColor = vec4(fogged, texColor.a);
+    // ─── Combined lighting ────────────────────────────────────────────────
+    vec3 light = uAmbientColor + direct + specular;
+    light     *= FaceLight;
+
+    if (uIsLOD == 1) {
+        light = mix(light, vec3(dot(light, vec3(0.299, 0.587, 0.114))), 0.15);
+        light = max(light, vec3(0.12));
+    } else {
+        light = max(light, vec3(0.07));
+    }
+
+    vec3 lit   = texColor.rgb * light;
+
+    // ─── Fog ──────────────────────────────────────────────────────────────
+    float dist              = length(FragPos - cameraPos);
+    float effectiveFogStart = (uIsLOD == 1) ? fogStart * 0.75 : fogStart;
+    float ff                = calcFogFactor(dist, effectiveFogStart, fogEnd);
+    vec3  color             = mix(fogColor, lit, ff);
+
+    // ─── Spawn animation: fade-in ────────────────────────────────────────────
+    float alpha = texColor.a;
+    if (vSpawnT < 1.0) {
+        float fadeStart = (uIsLOD == 1) ? 0.3 : 0.0;
+        float fadeT     = clamp((vSpawnT - fadeStart) / (1.0 - fadeStart), 0.0, 1.0);
+        fadeT           = fadeT * fadeT * (3.0 - 2.0 * fadeT);
+        color           = mix(fogColor, color, fadeT);
+        alpha          *= fadeT;
+    }
+
+    FragColor = vec4(color, alpha);
 }

@@ -60,7 +60,7 @@ void Scene::init() {
 
   setupShadowPass();
 
-  // ISI TRUE di argumen paling belakang (karena masih fase init/loading)
+  // Pass TRUE as last argument (still in init/loading phase)
   world.update(camera.position, camera.front, frustum, true);
 }
 
@@ -73,7 +73,7 @@ void Scene::update(float dt, SDL_Window *window) {
     glm::mat4 view = camera.getViewMatrix();
     frustum.update(projection, view);
 
-    // ISI TRUE di argumen paling belakang (karena sedang isLoading)
+    // Pass TRUE as last argument (currently in loading state)
     world.update(camera.position, camera.front, frustum, true);
 
     bool allReady = true;
@@ -107,7 +107,7 @@ void Scene::update(float dt, SDL_Window *window) {
   glm::mat4 view = camera.getViewMatrix();
   frustum.update(projection, view);
 
-  // ISI FALSE di argumen paling belakang (karena sudah masuk gameplay!)
+  // Pass FALSE as last argument (gameplay has started)
   world.update(camera.position, camera.front, frustum, false);
 
   PhysicsSystem::update(playerTransform, playerRigidbody, world, dt);
@@ -118,7 +118,7 @@ void Scene::render() {
   if (isLoading) {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    // Optional: render loading screen text di sini
+    // Optional: render loading screen text here
     return;
   }
 
@@ -171,7 +171,7 @@ void Scene::render() {
   sky.Render(top, hor, bot, sunDir, moonDir);
 
   /*
-    WORLD (di dalam Scene::render())
+    WORLD (inside Scene::render())
 */
   // Calculate active light parameters
   float progress = time.getDayProgress();
@@ -229,7 +229,8 @@ void Scene::render() {
   glUniform3f(glGetUniformLocation(shader->id, "uAmbientColor"), activeAmbientColor.r, activeAmbientColor.g,
               activeAmbientColor.b);
   glUniform1f(glGetUniformLocation(shader->id, "uShadowDistance"), (float)Setting::shadowDistance * 16.0f);
-  glUniform1i(glGetUniformLocation(shader->id, "uShadowsEnabled"), (activeLightDir.y >= 0.05f) ? 1 : 0);
+  glUniform1i(glGetUniformLocation(shader->id, "uShadowsEnabled"),
+              (Setting::enableShadows && shadowActive) ? 1 : 0);
 
   glm::mat4 model = glm::mat4(1.0f);
   glUniformMatrix4fv(glGetUniformLocation(shader->id, "model"), 1, GL_FALSE,
@@ -248,7 +249,7 @@ void Scene::render() {
   glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
   shader->setInt("shadowMap", 1);
 
-  // Bind atlas ke unit 0
+  // Bind atlas to unit 0
   glActiveTexture(GL_TEXTURE0);
   atlas->bind(0);
   shader->setInt("atlas", 0);
@@ -258,7 +259,17 @@ void Scene::render() {
   glCullFace(GL_BACK);
   glFrontFace(GL_CCW);
 
-  world.draw(playerTransform.position.x, playerTransform.position.z, frustum);
+  // Alpha blending enabled for spawn animation (regular chunk + LOD)
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+  world.draw(playerTransform.position.x, playerTransform.position.z,
+             frustum, shader->id);
+
+  // ── LOD tiles (low resolution, long range) ──────────────────────────────
+  // Enable alpha blending for spawn fade-in animation
+  world.drawLOD(frustum, shader->id);
+  glDisable(GL_BLEND);
 
   /*
       PLAYER MODEL
@@ -310,99 +321,182 @@ void Scene::render() {
 
 void Scene::setupShadowPass()
 {
-    if (shadowFBO != 0) return; // Already initialized
+    int neededRes = Setting::shadowMapSize();
 
-    // Create framebuffer object
+    if (shadowFBO != 0 && shadowMapRes == neededRes) return;
+
+    if (shadowDepthTexture != 0) { glDeleteTextures(1, &shadowDepthTexture); shadowDepthTexture = 0; }
+    if (shadowFBO != 0) { glDeleteFramebuffers(1, &shadowFBO); shadowFBO = 0; }
+
+    shadowMapRes = neededRes;
+
     glGenFramebuffers(1, &shadowFBO);
     glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
 
-    // Create depth texture
     glGenTextures(1, &shadowDepthTexture);
     glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
+                 shadowMapRes, shadowMapRes, 0,
+                 GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
 
-    // Attach depth texture to framebuffer
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowDepthTexture, 0);
+    // GL_LINEAR required for PCF — hardware interpolates between
+    // 4 depth samples when sampling between texels → soft edge shadow.
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    // Disable color buffer
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                           GL_TEXTURE_2D, shadowDepthTexture, 0);
     glDrawBuffer(GL_NONE);
     glReadBuffer(GL_NONE);
 
-    // Check framebuffer status
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         std::cerr << "Shadow framebuffer not complete!" << std::endl;
-    }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void Scene::renderShadowPass()
 {
-    glm::vec3 sunDir = time.getSunDirection();
-    glm::vec3 moonDir = time.getMoonDirection();
+    glm::vec3 sunDir   = time.getSunDirection();
+    glm::vec3 moonDir  = time.getMoonDirection();
     glm::vec3 lightDir = (sunDir.y >= 0.0f) ? sunDir : moonDir;
 
-    if (lightDir.y < 0.05f) {
-        // Skip shadow map rendering when the active light is too close to the horizon
+    // ── Hysteresis: prevent shadow flicker on/off at sunset/sunrise ──────────
+    if (shadowActive) {
+        if (lightDir.y < 0.02f) shadowActive = false;
+    } else {
+        if (lightDir.y >= 0.05f) shadowActive = true;
+    }
+
+    if (!shadowActive || !Setting::enableShadows) {
+        setupShadowPass();
+        glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+        glViewport(0, 0, shadowMapRes, shadowMapRes);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, Setting::windowWidth, Setting::windowHeight);
+        lightSpaceMatrix = glm::mat4(1.0f);
         return;
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
-    glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
-    glClear(GL_DEPTH_BUFFER_BIT);
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_FRONT);
+    setupShadowPass();
 
-    // Snap the shadow camera to shadow map texel boundaries to prevent shadow shimmering/crawling when moving
-    glm::mat4 tempLightView = glm::lookAt(lightDir * 200.0f, glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    glm::vec4 playerInLightSpace = tempLightView * glm::vec4(playerTransform.position, 1.0f);
-    
-    float shadowR = Setting::shadowDistance * 16.0f;
-    float texelSize = (shadowR * 2.0f) / 1024.0f;
-    playerInLightSpace.x = std::round(playerInLightSpace.x / texelSize) * texelSize;
-    playerInLightSpace.y = std::round(playerInLightSpace.y / texelSize) * texelSize;
-    
-    glm::vec3 snappedTarget = glm::vec3(glm::inverse(tempLightView) * playerInLightSpace);
-    glm::mat4 lightView = glm::lookAt(snappedTarget + lightDir * 200.0f, snappedTarget, glm::vec3(0.0f, 0.0f, 1.0f));
-    
-    glm::mat4 lightProjection = glm::ortho(-shadowR, shadowR, -shadowR, shadowR, 0.1f, 400.0f);
+    // ── Ortho radius — world area covered by shadow ────────────────────────────
+    const float shadowR = Setting::shadowDistance * 16.0f;
+
+    // ── Up vector ─────────────────────────────────────────────────────────────
+    glm::vec3 up = (std::abs(lightDir.y) > 0.98f)
+                 ? glm::vec3(0.0f, 0.0f, 1.0f)
+                 : glm::vec3(0.0f, 1.0f, 0.0f);
+
+    // ── Correct texel snapping ─────────────────────────────────────────────
+    //
+    // worldTexel = size of 1 shadow map texel in world units
+    //   = (shadowR * 2) / shadowMapRes
+    //
+    // Snapping method:
+    //  1. Compute light-space right & up vectors (from cross product)
+    //  2. Project playerPos onto both axes
+    //  3. Snap projection to worldTexel grid
+    //  4. Reconstruct world-space center:
+    //     snappedCenter = playerPos
+    //                   - (frac right offset) * lightRight
+    //                   - (frac up   offset) * lightUp
+    //
+    // This does NOT discard player position components — we only correct
+    // the sub-texel fractional offset, not replacing the position entirely.
+    //
+    const float worldTexel = (shadowR * 2.0f) / (float)shadowMapRes;
+
+    glm::vec3 lightRight = glm::normalize(glm::cross(up, lightDir));
+    glm::vec3 lightUp    = glm::normalize(glm::cross(lightDir, lightRight));
+
+    glm::vec3 playerPos = playerTransform.position;
+
+    // Project onto light-space axes
+    float projR = glm::dot(playerPos, lightRight);
+    float projU = glm::dot(playerPos, lightUp);
+
+    // Extract fractional offset only (remainder after snapping to grid)
+    float fracR = projR - std::floor(projR / worldTexel) * worldTexel;
+    float fracU = projU - std::floor(projU / worldTexel) * worldTexel;
+
+    // Correction: shift playerPos back by fractional amount → shadow grid locks in
+    glm::vec3 snappedCenter = playerPos
+                            - lightRight * fracR
+                            - lightUp    * fracU;
+
+    // ── Light view matrix ─────────────────────────────────────────────────────
+    // Eye position far along light direction, target = snappedCenter
+    glm::mat4 lightView = glm::lookAt(
+        snappedCenter + lightDir * 512.0f,
+        snappedCenter,
+        up);
+
+    // ── Light ortho projection ────────────────────────────────────────────────
+    // near/far must cover the entire world:
+    //   - World height max = 256
+    //   - Light eye = snappedCenter + lightDir*512
+    //   - Farthest fragment from eye ≈ 512 + 256 + buffer
+    //   - Use near=0.1, far=1024 to be safe at all light angles
+    glm::mat4 lightProjection = glm::ortho(
+        -shadowR, shadowR,
+        -shadowR, shadowR,
+        0.1f, 1024.0f);
+
     lightSpaceMatrix = lightProjection * lightView;
 
-    // Light frustum culling to skip drawing chunks outside the shadow camera projection
-    Frustum lightFrustum;
-    lightFrustum.update(lightProjection, lightView);
+    // ── Render to shadow FBO ──────────────────────────────────────────────────
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+    glViewport(0, 0, shadowMapRes, shadowMapRes);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    glEnable(GL_DEPTH_TEST);
+
+    // Do NOT cull faces in shadow pass for voxel geometry.
+    // Greedy mesher only emits visible faces — no solid back faces exist.
+    // Using GL_FRONT discards all faces → empty shadow map.
+    glDisable(GL_CULL_FACE);
 
     shadowShader->use();
-    glUniformMatrix4fv(glGetUniformLocation(shadowShader->id, "lightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
+    glUniformMatrix4fv(glGetUniformLocation(shadowShader->id, "lightSpaceMatrix"),
+                       1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
 
     glm::mat4 model = glm::mat4(1.0f);
-    glUniformMatrix4fv(glGetUniformLocation(shadowShader->id, "model"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniformMatrix4fv(glGetUniformLocation(shadowShader->id, "model"),
+                       1, GL_FALSE, glm::value_ptr(model));
 
     atlas->bind(0);
     shadowShader->setInt("atlas", 0);
 
-    // Render chunks within shadow distance around the player
-    int playerChunkX = (int)std::floor(playerTransform.position.x / Chunk::SIZE);
-    int playerChunkZ = (int)std::floor(playerTransform.position.z / Chunk::SIZE);
+    float nowSec = (float)(SDL_GetTicks() / 1000.0);
+    glUniform1f(glGetUniformLocation(shadowShader->id, "uTime"), nowSec);
+    glUniform1i(glGetUniformLocation(shadowShader->id, "uIsLOD"), 0);
+    GLint shadowSpawnLoc = glGetUniformLocation(shadowShader->id, "uLodSpawnTime");
+
+    Frustum lightFrustum;
+    lightFrustum.update(lightProjection, lightView);
+
+    int playerChunkX = (int)std::floor(playerPos.x / Chunk::SIZE);
+    int playerChunkZ = (int)std::floor(playerPos.z / Chunk::SIZE);
 
     for (int x = -Setting::shadowDistance; x <= Setting::shadowDistance; x++) {
         for (int z = -Setting::shadowDistance; z <= Setting::shadowDistance; z++) {
             Chunk *chunk = world.getChunk(playerChunkX + x, playerChunkZ + z);
-            if (chunk && chunk->mesh) {
-                if (!lightFrustum.isBoxVisible(chunk->getMinBounds(), chunk->getMaxBounds())) {
-                    continue;
-                }
-                chunk->mesh->draw();
-            }
+            if (!chunk || !chunk->mesh) continue;
+            if (!lightFrustum.isBoxVisible(chunk->getMinBounds(), chunk->getMaxBounds()))
+                continue;
+            glUniform1f(shadowSpawnLoc, chunk->spawnTime);
+            chunk->mesh->draw();
         }
     }
 
-    glCullFace(GL_BACK);
+    glEnable(GL_CULL_FACE); // restore
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, Setting::windowWidth, Setting::windowHeight);
 }

@@ -43,17 +43,17 @@ TerrainSample TerrainSampler::sample(int worldX, int worldZ)
 
     // ─────────────────────────────────────────────────────────────
     //  RIVER
-    //  0 = tepat di tengah sungai
-    //  1 = jauh dari sungai
+    //  0 = exactly at the river center
+    //  1 = far away from a river
     // ─────────────────────────────────────────────────────────────
     terrain.river = std::abs(FBMNoise::generate(
         worldX, worldZ, 3, 0.5f, Setting::riverScale, Setting::seed + 300));
 
     // ─────────────────────────────────────────────────────────────
     //  PLATEAU MASK
-    //  Ridge noise berskala besar → tinggi di puncak plateau, mendekati 0
-    //  di tepi dan valley. Ini yang menentukan lokasi & bentuk plateau.
-    //  Frequency rendah = plateau lebar & massif.
+    //  Large-scale ridge noise — high at plateau tops, approaching 0
+    //  at edges and valleys. Determines the location and shape of plateaus.
+    //  Low frequency = wide and massive plateaus.
     // ─────────────────────────────────────────────────────────────
     terrain.plateau = RidgeNoise::generate(
         worldX, worldZ, 4, 0.6f,
@@ -61,8 +61,8 @@ TerrainSample TerrainSampler::sample(int worldX, int worldZ)
 
     // ─────────────────────────────────────────────────────────────
     //  PILLAR RIDGE
-    //  Ridge noise lebih kasar & frekuensi lebih tinggi dari plateau.
-    //  Dipakai untuk memilih posisi pilar batu di bawah tepi cliff.
+    //  Rougher ridge noise at higher frequency than plateau noise.
+    //  Used to select stone pillar positions under cliff edges.
     // ─────────────────────────────────────────────────────────────
     terrain.pillar = RidgeNoise::generate(
         worldX, worldZ, 3, 0.5f,
@@ -70,8 +70,8 @@ TerrainSample TerrainSampler::sample(int worldX, int worldZ)
 
     // ─────────────────────────────────────────────────────────────
     //  CLIFF EROSION MASK
-    //  FBM kasar untuk memecah tepi cliff agar tidak rata sempurna.
-    //  Nilai 0.0–1.0: dipakai untuk menggeser batas terrace per-kolom.
+    //  Rough FBM noise to break cliff edges so they are not perfectly flat.
+    //  Value range 0.0 to 1.0: used to shift terrace boundaries per column.
     // ─────────────────────────────────────────────────────────────
     terrain.cliffMask =
         (FBMNoise::generate(worldX, worldZ, 3, 0.7f,

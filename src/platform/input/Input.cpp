@@ -7,6 +7,7 @@ bool Input::s = false;
 bool Input::d = false;
 bool Input::b = false;
 bool Input::bPressed = false;
+bool Input::oPressed = false;
 bool Input::left_click = false;
 bool Input::right_click = false;
 bool Input::space = false;
@@ -21,6 +22,7 @@ void Input::beginFrame()
 {
     escapePressed = false;
     bPressed = false;
+    oPressed = false;
     bracketLeftPressed = false;
     bracketRightPressed = false;
     mouseX = 0.0f;
@@ -49,6 +51,10 @@ void Input::handleEvent(SDL_Event& e)
         case SDLK_B:
             b = pressed;
             if (pressed) bPressed = true;
+            break;
+
+        case SDLK_O:
+            if (pressed) oPressed = true;
             break;
 
         case SDLK_ESCAPE:

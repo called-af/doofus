@@ -47,6 +47,9 @@ public:
 
   bool meshReady = false;  
 
+  // Time in seconds when the mesh was first uploaded to GPU for spawn animation effects
+  float spawnTime = -1.0f;
+
   Chunk(int x, int z, World *world);
 
   void generateMeshData();

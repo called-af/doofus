@@ -7,6 +7,7 @@ public:
     static bool w, a, s, d;
     static bool b;   
     static bool bPressed;
+    static bool oPressed;
 
     static bool left_click;
     static bool right_click;

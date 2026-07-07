@@ -20,6 +20,13 @@ class TerrainGenerator
 public:
     static void generate(Chunk& chunk);
 
+    // ── Standalone height and block samplers (does not require loaded Chunk) ──────────
+    // Used by LOD level 4 and 5 which are too far away to require chunk data
+    // Returns the highest solid block Y coordinate or -1 if empty
+    static int       sampleHeightAt(int worldX, int worldZ);
+    // Returns the block type at the highest point at (worldX, worldZ)
+    static BlockType sampleBlockAt (int worldX, int worldZ);
+
 private:
     // Cache helper
     // Computes all column-level data once, stored in a 2D grid.

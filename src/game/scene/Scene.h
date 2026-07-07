@@ -51,8 +51,8 @@ private:
   // Shadow mapping
   GLuint shadowFBO = 0;
   GLuint shadowDepthTexture = 0;
-  static constexpr int SHADOW_WIDTH = 1024;
-  static constexpr int SHADOW_HEIGHT = 1024;
+  int shadowMapRes = 0;
+  bool shadowActive = false;   // Shadow state hysteresis flag shared between renderShadowPass and render to prevent flicker
   glm::mat4 lightSpaceMatrix = glm::mat4(1.0f);
 
   void setupShadowPass();

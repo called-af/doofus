@@ -4,6 +4,7 @@
 #include <cstring>
 #include <glm/glm.hpp>
 #include <iostream>
+#include <SDL3/SDL.h>
 
 Chunk::Chunk(int x, int z, World *worldPtr) {
   chunkX = x;
@@ -35,10 +36,14 @@ void Chunk::uploadMesh() {
     }
 
     unsigned int size = vertices.size() * sizeof(float);
-    if (!mesh)
+    if (!mesh) {
         mesh = std::make_unique<Mesh>(vertices.data(), size);
-    else
+        // Record spawn time only when mesh is first created
+        spawnTime = (float)(SDL_GetTicks() / 1000.0);
+    } else {
         mesh->update(vertices.data(), size);
+        // Remesh (dirty update) does not reset animation — tile has already appeared
+    }
 
     vertices.clear();
     vertices.shrink_to_fit();

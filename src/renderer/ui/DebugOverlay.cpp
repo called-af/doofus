@@ -83,4 +83,7 @@ void DebugOverlay::render(int screenWidth, int screenHeight, float fps,
   startY += lineH;
   font.drawText("Shadow Dist: " + std::to_string(Setting::shadowDistance) + " chks ([/])",
                 startX, startY, scale, white, screenWidth, screenHeight);
+  startY += lineH;
+  font.drawText("Shadows: " + std::string(Setting::enableShadows ? "ON" : "OFF") + " (O)",
+                startX, startY, scale, white, screenWidth, screenHeight);
 }

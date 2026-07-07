@@ -34,7 +34,7 @@ public:
   static inline float fov = 90.0f;
 
   static inline float nearPlane = 0.1f;
-  static inline float farPlane = 500.0f;
+  static inline float farPlane = 8000.0f;
 
   static inline float mouseSensitivity = 0.1f;
 
@@ -51,8 +51,28 @@ public:
   // WORLD
   // ======================
 
-  static inline int renderDistance = 32;
+  static inline int renderDistance = 24;
+
+  // LOD ring distances (in chunk units, measured from player chunk center).
+  // LOD1 = 2x downsampled  (4 source chunks → 1 LOD chunk, covers 2×2 chunks)
+  // LOD2 = 4x downsampled  (16 source chunks → 1 LOD chunk, covers 4×4 chunks)
+  // LOD3 = 8x downsampled  (64 source chunks → 1 LOD chunk, covers 8×8 chunks)
+  static inline int lod1Start = 24;  // lod1Start MUST == renderDistance
+  static inline int lod1End   = 48;
+  static inline int lod2Start = 48;  // lod2Start MUST == lod1End
+  static inline int lod2End   = 80;
+  static inline int lod3Start = 80;  // lod3Start MUST == lod2End
+  static inline int lod3End   = 128;
+
+  // Kept for compatibility; equals lod3End.
+  static inline int lodRenderDistance = 96;
+
   static inline int shadowDistance = 8;
+  static inline bool enableShadows = true;
+
+  // Shadow map 1024: worldTexel = (shadowDist*16*2)/1024 = 0.25 blocks per texel.
+  // Sufficient for smooth PCF 3x3 without being too heavy on the GPU.
+  static int shadowMapSize() { return 1024; }
 
   /*
       WORLD HEIGHT
@@ -64,7 +84,7 @@ public:
       SEED
   */
 
-  static inline int seed = 1234;
+  static inline int seed = 1233;
 
   static inline float daySpeed = 50.0f;
 
@@ -123,9 +143,9 @@ public:
   // ======================
 
   // PEAKS & VALLEYS
-  static inline float peaksScale = 0.010f; // sedikit lebih lebar
+  static inline float peaksScale = 0.010f; // slightly wider
   static inline int peakHeight =
-      60; // naikkan dari 75, lereng bawah udah handle massa
+      60; // raised from 75, lower slopes already handle mass
 
   // ======================
   // EROSION
@@ -159,11 +179,11 @@ public:
   static constexpr float pillarThreshold = 0.45f;
 
   // =================================═════════════════════════════════
-  //  PLATEAU SETTING (KUNCI UTAMA BENTUK PULAU LOYANG PIZZA)
+  //  PLATEAU SETTINGS (main controls for island shape)
   // =================================═════════════════════════════════
   static constexpr float plateauScale = 0.0012f;
-  // LOYANG PIZZA TETAP LUAS: Threshold diturunkan ke 0.52f agar pulau yang
-  // muncul langsung melebar luas
+  // Keep island wide: threshold lowered to 0.52f so the island
+  // spreads out immediately
   static constexpr float plateauThreshold = 0.52f;
 
   static constexpr int plateauBaseHeight = 85;
@@ -187,29 +207,29 @@ public:
   // STALACTITE & STALAGMITE
   // ======================
 
-  // Seberapa sering cluster spike muncul (noise scale)
+  // How often spike clusters appear (noise scale)
   static inline float spikeNoiseScale = 1.2f;
 
-  // DIKECILKAN LAGI: Supaya area cekungan noise makin melebar luas (footprint
-  // pilar makin raksasa)
+  // Reduced further: to make noise basin area spread wider (pillar
+  // footprint grows larger)
   static inline float spikeSpawnThreshold = 0.01f;
 
   static inline float spikeDepthFalloff = 1.0f;
   static inline float spikeDepthCutoff = 0.0f;
 
-  // DINAIKKAN: Memberikan bonus ketebalan ekstra masif saat berada di pusat
-  // pulau
+  // Increased: grants extra massive thickness bonus when near the
+  // island center
   static inline float spikeDepthThicknessMult = 0.65f;
 
-  // Batas pemotongan ujung ditekankan ke 0.60f agar ujungnya tetep dapet lancip
-  // yang clean
+  // Tip cutoff set to 0.60f so tips remain sharp
+  // and clean
   static inline float spikeTaperCurve = 0.60f;
 
-  // KUNCI UTAMA (BARU): Pangkat tinggi membuat bodi duri kokoh lurus ke
-  // bawah/atas seperti pilar!
+  // KEY PARAMETER (NEW): High exponent makes spike body rigid and straight
+  // downward/upward like a pillar!
   static inline float spikeTaperExponent = 4.5f;
 
-  // Panjang maksimum stalactite & stalagmite
+  // Maximum length for stalactites & stalagmites
   static inline float stalactiteMaxLen = 65.0f;
   static inline float stalagmiteMaxLen = 55.0f;
 
@@ -222,8 +242,8 @@ public:
   // FOG
   // ======================
 
-  static inline float fogStart = 10.0f;
-  static inline float fogEnd = 300.0f;
+  static inline float fogStart = 800.0f;
+  static inline float fogEnd = 2000.0f;
 
   // ======================
   // PLAYER
