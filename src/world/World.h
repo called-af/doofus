@@ -13,66 +13,101 @@
 #include <unordered_map>
 #include <unordered_set>
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  World
+//
+//  Manages all full-detail chunks and low-resolution LOD tiles.
+//
+//  5-Level LOD System:
+//    - Level 1: nearest ring  (2×2 chunks per tile)
+//    - Level 2: mid ring      (4×4 chunks per tile)
+//    - Level 3: far ring      (8×8 chunks per tile)
+//    - Level 4: very far ring (16×16 chunks per tile)
+//    - Level 5: ultra far ring (32×32 chunks per tile)
+//
+//  The distance for each ring is configured via Setting (lod1Start–lod5End).
+// ─────────────────────────────────────────────────────────────────────────────
+
 class World {
 public:
-  World();
-  ~World();
+    World();
+    ~World();
 
-  void update(glm::vec3 cameraPos, glm::vec3 cameraFront,
-              const Frustum &frustum, bool isLoading);
-  void draw(float playerX, float playerZ, const Frustum &frustum, GLuint shaderID);
+    // Called every frame from Scene::update() — updates chunk & LOD state
+    void update(glm::vec3 cameraPos, glm::vec3 cameraFront,
+                const Frustum& frustum, bool isLoading);
 
-  // Render LOD chunks — called after draw() in Scene with uIsLOD=1 uniform flag
-  void drawLOD(const Frustum &frustum, GLuint shaderID);
+    // Draw all full-detail chunks visible within the frustum
+    void draw(float playerX, float playerZ, const Frustum& frustum, GLuint shaderID);
 
-  bool isSolid(int x, int y, int z);
-  int getHeight(int x, int z);
-  void setBlock(int x, int y, int z, BlockType type);
+    // Draw all LOD tiles — called after draw() in Scene, with uIsLOD=1
+    void drawLOD(const Frustum& frustum, GLuint shaderID);
 
-  Chunk *getChunk(int chunkX, int chunkZ);
-  std::shared_ptr<Chunk> getChunkShared(int chunkX, int chunkZ);
+    // ── Block operations ──────────────────────────────────────────────────
+    bool isSolid(int x, int y, int z);
+    int  getHeight(int x, int z);
+    void setBlock(int x, int y, int z, BlockType type);
 
-  void markChunkDirty(Chunk *chunk);
-  long long getChunkKey(int x, int z);
+    // ── Chunk access ──────────────────────────────────────────────────────
+    Chunk*                  getChunk(int chunkX, int chunkZ);
+    std::shared_ptr<Chunk>  getChunkShared(int chunkX, int chunkZ);
+
+    void      markChunkDirty(Chunk* chunk);
+    long long getChunkKey(int x, int z);
 
 private:
-  // ──── Regular chunks ─────────────────────────────────────────────────────
-  void loadChunk(int chunkX, int chunkZ, glm::vec3 cameraPos,
-                 glm::vec3 cameraFront, const Frustum &frustum, bool isLoading);
-  int calculatePriority(int chunkX, int chunkZ, glm::vec3 cameraPos,
-                        glm::vec3 cameraFront, const Frustum &frustum,
-                        bool isLoading);
-  void unloadFarChunks(int playerChunkX, int playerChunkZ);
+    // ── Regular chunks ────────────────────────────────────────────────────
+    void loadChunk(int chunkX, int chunkZ, glm::vec3 cameraPos,
+                   glm::vec3 cameraFront, const Frustum& frustum, bool isLoading);
 
-  std::unordered_map<long long, std::shared_ptr<Chunk>> chunks;
-  mutable std::shared_mutex chunksMutex;
+    // Calculate generation/mesh priority for a chunk based on distance & frustum
+    int  calculatePriority(int chunkX, int chunkZ, glm::vec3 cameraPos,
+                           glm::vec3 cameraFront, const Frustum& frustum,
+                           bool isLoading);
 
-  std::unordered_map<long long, uint32_t> queuedChunks;
-  std::vector<long long> remeshQueue;
+    void unloadFarChunks(int playerChunkX, int playerChunkZ);
 
-  std::unique_ptr<ChunkWorker> worker;
+    std::unordered_map<long long, std::shared_ptr<Chunk>> chunks;
+    mutable std::shared_mutex chunksMutex;
 
-  // ──── LOD ────────────────────────────────────────────────────────────────
-  // Key: getLODKey(tileX, tileZ, level)
-  static long long getLODKey(int tileX, int tileZ, int level);
+    std::unordered_map<long long, uint32_t> queuedChunks; // key → generation at the time of queuing
+    std::vector<long long>                  remeshQueue;
 
-  // Convert chunk coordinates to tile coordinates for the specified level
-  // One level-L tile covers (2^L) chunks per side
-  static int chunkToTile(int chunkCoord, int level) {
-    int cov = (1 << level);
-    return (int)std::floor((float)chunkCoord / cov);
-  }
+    std::unique_ptr<ChunkWorker> worker;
 
-  // Check if this tile is within the correct LOD ring for its level
-  // (not in the regular chunk area and not too far away)
-  bool inLODRing(int tileX, int tileZ, int level,
-                 int playerChunkX, int playerChunkZ) const;
+    // ── Shader uniform cache (avoid glGetUniformLocation every frame) ─────
+    GLint uIsLODLoc       = -1;
+    GLint uTimeLoc        = -1;
+    GLint uSpawnTimeLoc   = -1;
+    GLuint cachedShaderID = 0;   // last shader whose uniforms were cached
 
-  void updateLOD(int playerChunkX, int playerChunkZ,
-                 glm::vec3 cameraPos, const Frustum &frustum);
+    // Update the uniform location cache if the shader has changed
+    void cacheUniformLocations(GLuint shaderID);
 
-  void requestLODTile(int tileX, int tileZ, int level);
+    // ── LOD system ────────────────────────────────────────────────────────
+    // Unique tile key: encodes tileX, tileZ, and level into a single long long
+    // Bit layout: [level 4bit][tileZ 30bit][tileX 30bit]
+    static long long getLODKey(int tileX, int tileZ, int level);
 
-  std::unordered_map<long long, std::shared_ptr<LODChunk>> lodChunks;
-  std::unordered_set<long long> queuedLODTiles;  // Tiles currently being processed by worker threads
+    // Convert chunk coordinate to tile coordinate for a given level.
+    // A level-L tile covers (2^L) chunks per side.
+    static int chunkToTile(int chunkCoord, int level) {
+        int cov = (1 << level);
+        return (int)std::floor((float)chunkCoord / cov);
+    }
+
+    // Check whether a tile falls within the correct LOD ring for its level
+    // (not inside the regular chunk area, not too far out)
+    bool inLODRing(int tileX, int tileZ, int level,
+                   int playerChunkX, int playerChunkZ) const;
+
+    // Update the LOD tile registry every frame
+    void updateLOD(int playerChunkX, int playerChunkZ,
+                   glm::vec3 cameraPos, const Frustum& frustum);
+
+    // Submit a LOD mesh build request to the worker
+    void requestLODTile(int tileX, int tileZ, int level);
+
+    std::unordered_map<long long, std::shared_ptr<LODChunk>>   lodChunks;
+    std::unordered_map<long long, std::array<int, 3>>          queuedLODTiles; // tiles currently being processed by the worker
 };

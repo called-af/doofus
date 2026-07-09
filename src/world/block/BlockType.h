@@ -1,3 +1,8 @@
-#pragma once
+#ifndef DOOFUS_BLOCKTYPE_H
+#define DOOFUS_BLOCKTYPE_H
 
-enum class BlockType { Air, Grass, Dirt, Stone, Sand };
+#include <cstdint>
+
+enum class BlockType : uint8_t { Air, Grass, Dirt, Stone, Sand };
+
+#endif
