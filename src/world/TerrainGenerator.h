@@ -24,8 +24,12 @@ public:
     // Used by LOD level 4 and 5 which are too far away to require chunk data
     // Returns the highest solid block Y coordinate or -1 if empty
     static int       sampleHeightAt(int worldX, int worldZ);
+    // LOD surface sampler.  Coarse heightmap LODs deliberately omit the
+    // 22-block floating-cone signal; sampling that signal on a 128+ block grid
+    // aliases it into random mountains.
+    static int       sampleLODHeightAt(int worldX, int worldZ, int level);
     // Returns the block type at the highest point at (worldX, worldZ)
-    static BlockType sampleBlockAt (int worldX, int worldZ);
+    static BlockType sampleBlockAt (int worldX, int worldZ, int surfaceHeight);
 
 private:
     // Cache helper

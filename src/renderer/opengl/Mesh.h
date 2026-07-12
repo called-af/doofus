@@ -7,10 +7,11 @@ public:
     GLuint VAO;
     GLuint VBO;
     int vertexCount;
+    unsigned int bufferCapacity;
 
-    Mesh(float* vertices, unsigned int size);
+    Mesh(const float* vertices, unsigned int size);
     ~Mesh();
 
-    void update(float* vertices, unsigned int size);
+    void update(const float* vertices, unsigned int size);
     void draw();
 };

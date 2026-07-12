@@ -46,9 +46,8 @@ void LODChunk::uploadMesh()
     if (spawnTime < 0.0f)
         spawnTime = (float)(SDL_GetTicks() / 1000.0);
 
-    // Free CPU memory — data is now resident on the GPU
+    // Retain capacity for future mesh updates without reallocating.
     pendingVertices.clear();
-    pendingVertices.shrink_to_fit();
 }
 
 void LODChunk::draw()

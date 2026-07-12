@@ -27,26 +27,24 @@ void Chunk::generateMeshData() {
 }
 
 void Chunk::uploadMesh() {
-    vertices = std::move(pendingVertices);
-    empty.store(vertices.empty());
+    empty.store(pendingVertices.empty());
 
-    if (vertices.empty()) {
+    if (pendingVertices.empty()) {
         mesh.reset();
         return;
     }
 
-    unsigned int size = vertices.size() * sizeof(float);
+    const unsigned int size = pendingVertices.size() * sizeof(float);
     if (!mesh) {
-        mesh = std::make_unique<Mesh>(vertices.data(), size);
+        mesh = std::make_unique<Mesh>(pendingVertices.data(), size);
         // Record spawn time only when mesh is first created
         spawnTime = (float)(SDL_GetTicks() / 1000.0);
     } else {
-        mesh->update(vertices.data(), size);
+        mesh->update(pendingVertices.data(), size);
         // Remesh (dirty update) does not reset animation — tile has already appeared
     }
 
-    vertices.clear();
-    vertices.shrink_to_fit();
+    pendingVertices.clear();
 }
 
 void Chunk::draw() {

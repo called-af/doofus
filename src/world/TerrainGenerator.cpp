@@ -56,6 +56,114 @@ void TerrainGenerator::generate(Chunk &chunk) {
   generateCaves(chunk, cache);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Standalone LOD sampling
+// ─────────────────────────────────────────────────────────────────────────────
+
+int TerrainGenerator::sampleHeightAt(int worldX, int worldZ)
+{
+  return sampleLODHeightAt(worldX, worldZ, 1);
+}
+
+int TerrainGenerator::sampleLODHeightAt(int worldX, int worldZ, int level)
+{
+  const TerrainSample terrain = TerrainSampler::sample(worldX, worldZ);
+  const int floorH = computeBaseHeight(terrain);
+
+  if (terrain.plateau < Setting::plateauThreshold) {
+    int height = std::clamp(floorH + static_cast<int>(terrain.peaks * 10.0f),
+                            floorH, floorH + 12);
+
+    // LOD3+ is a band-limited height field.  The cone wavelength is about
+    // 22 blocks, so it must not be sampled directly by those coarse grids.
+    if (level >= 3)
+      return height;
+
+    const float groupMask = (FBMNoise::generate(worldX * 0.0035f, worldZ * 0.0035f,
+                                                 2, 0.5f, 0.5f, Setting::seed + 432) + 1.0f) * 0.5f;
+    const float islandMask = (FBMNoise::generate(worldX * 0.045f, worldZ * 0.045f,
+                                                  3, 0.55f, 0.5f, Setting::seed + 876) + 1.0f) * 0.5f;
+    if (groupMask <= 0.50f || islandMask <= 0.50f)
+      return height;
+
+    constexpr int checkDistance = 2;
+    const auto sampleIslandMask = [worldX, worldZ](int offsetX, int offsetZ) {
+      return (FBMNoise::generate((worldX + offsetX) * 0.045f,
+                                 (worldZ + offsetZ) * 0.045f, 3, 0.55f, 0.5f,
+                                 Setting::seed + 876) + 1.0f) * 0.5f;
+    };
+    if (sampleIslandMask(checkDistance, 0) <= 0.50f
+        && sampleIslandMask(-checkDistance, 0) <= 0.50f
+        && sampleIslandMask(0, checkDistance) <= 0.50f
+        && sampleIslandMask(0, -checkDistance) <= 0.50f)
+      return height;
+
+    const float intensity = (islandMask - 0.50f) / 0.50f;
+    const int heightOffset = static_cast<int>(FBMNoise::generate(
+        worldX * 0.01f, worldZ * 0.01f, 2, 0.5f, 0.5f, Setting::seed + 555) * 20.0f);
+    const int coneTop = std::min(155 + heightOffset, Chunk::HEIGHT - 10);
+    const int coneBottom = std::max(110 + heightOffset, 40);
+
+    for (int y = coneTop; y >= coneBottom; --y) {
+      const float heightFactor = static_cast<float>(y - coneBottom)
+          / static_cast<float>(coneTop - coneBottom);
+      const float requiredIntensity = std::pow(1.0f - heightFactor, 1.4f);
+      const float roughness = FBMNoise::generate(worldX * 0.2f, y * 0.15f,
+                                                  2, 0.5f, 0.5f, Setting::seed) * 0.07f;
+      if (intensity > requiredIntensity + roughness)
+        return y;
+    }
+    return height;
+  }
+
+  const float raw = (terrain.plateau - Setting::plateauThreshold)
+      / (1.0f - Setting::plateauThreshold);
+  const float pDepth = std::clamp(raw, 0.0f, 1.0f);
+  const float smoothDepth = pDepth * pDepth * (3.0f - 2.0f * pDepth);
+  if (smoothDepth < Setting::islandEdgeCutoff)
+    return floorH;
+
+  const float variation = (FBMNoise::generate((worldX + 54321) * 0.0018f,
+                                               (worldZ + 12345) * 0.0018f,
+                                               3, 0.5f, 0.5f, Setting::seed + 225) + 1.0f) * 0.5f;
+  const int flatHeight = std::clamp(100 + static_cast<int>(variation * 75.0f),
+                                    100, Chunk::HEIGHT - 50);
+  int height = flatHeight;
+  if (smoothDepth > 0.35f) {
+    const float blend = (smoothDepth - 0.35f) / 0.65f;
+    const float smoothBlend = blend * blend * (3.0f - 2.0f * blend);
+    const float peakBlend = std::max(0.0f, (blend - Setting::mountainCoreThreshold)
+                                     / (1.0f - Setting::mountainCoreThreshold));
+    height += static_cast<int>(smoothBlend * 40.0f)
+        + static_cast<int>(peakBlend * std::sqrt(std::max(0.0f, terrain.peaks))
+                           * Setting::peakHeight);
+  } else {
+    height += static_cast<int>(terrain.erosion * 0.5f);
+  }
+  return std::clamp(applyErosion(height, terrain), flatHeight - 4, Chunk::HEIGHT - 1);
+}
+
+BlockType TerrainGenerator::sampleBlockAt(int worldX, int worldZ, int surfaceHeight)
+{
+  const TerrainSample terrain = TerrainSampler::sample(worldX, worldZ);
+  if (surfaceHeight < 20 && terrain.river < Setting::riverThreshold)
+    return BlockType::Dirt;
+
+  ClimateSample climate = ClimateSampler::sample(worldX, worldZ);
+  if (terrain.plateau >= Setting::plateauThreshold) {
+    if (terrain.plateau > Setting::mountainCoreThreshold) {
+      climate.temperature = 0.35f;
+      climate.humidity = 0.25f;
+    } else if (climate.temperature > Setting::desertTemperature) {
+      climate.humidity = 0.15f;
+    } else {
+      climate.temperature = 0.50f;
+      climate.humidity = 0.50f;
+    }
+  }
+  return BiomeManager::getBiome(terrain, climate)->getTopBlock();
+}
+
 //  HEIGHT PIPELINE
 
 int TerrainGenerator::computeBaseHeight(const TerrainSample &t) {

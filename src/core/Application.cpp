@@ -65,4 +65,8 @@ void Application::run() {
   }
 }
 
-void Application::shutdown() { window.reset(); }
+void Application::shutdown()
+{
+  // Keep the OpenGL context alive until Game and its GPU resources are
+  // destroyed in Application's normal member-destruction order.
+}

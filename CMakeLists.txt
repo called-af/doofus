@@ -49,6 +49,7 @@ add_executable(doofus
     src/renderer/opengl/Texture.cpp
     src/renderer/Sky.cpp
     src/renderer/Frustum.cpp
+    src/renderer/OcclusionCulling.cpp
 
     # camera
     src/camera/Camera.cpp

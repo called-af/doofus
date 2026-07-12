@@ -84,8 +84,10 @@ struct LODMeshRequest
     std::function<BlockType(int, int, int)> blockQuery;  // (wx, wy, wz) -> BlockType
     std::function<int(int, int)>            heightQuery; // (wx, wz)     -> int (highest Y)
 
-    // Higher level = lower priority (processed later)
-    bool operator<(const LODMeshRequest& o) const { return level < o.level; }
+    // priority_queue is a max-heap: invert the comparison so LOD1 is built
+    // first, then LOD2 through LOD5.  This fills the visible near boundary
+    // before spending worker time on the horizon.
+    bool operator<(const LODMeshRequest& o) const { return level > o.level; }
 };
 
 // Result of a LOD mesh build from a worker thread

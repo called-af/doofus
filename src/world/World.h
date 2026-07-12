@@ -4,8 +4,11 @@
 #include "Chunk.h"
 #include "ChunkWorker.h"
 #include "LODChunk.h"
+#include "../renderer/opengl/Shader.h"
+#include "../renderer/OcclusionCulling.h"
 
 #include <memory>
+#include <climits>
 #include <queue>
 #include <vector>
 #include <algorithm>
@@ -38,10 +41,13 @@ public:
                 const Frustum& frustum, bool isLoading);
 
     // Draw all full-detail chunks visible within the frustum
-    void draw(float playerX, float playerZ, const Frustum& frustum, GLuint shaderID);
+    void draw(const glm::vec3& cameraPos, const glm::vec3& cameraFront,
+              const Frustum& frustum, const glm::mat4& viewProjection,
+              GLuint shaderID);
 
     // Draw all LOD tiles — called after draw() in Scene, with uIsLOD=1
-    void drawLOD(const Frustum& frustum, GLuint shaderID);
+    void drawLOD(const glm::vec3& cameraPos, const Frustum& frustum,
+                 const glm::mat4& viewProjection, GLuint shaderID);
 
     // ── Block operations ──────────────────────────────────────────────────
     bool isSolid(int x, int y, int z);
@@ -66,6 +72,38 @@ private:
                            bool isLoading);
 
     void unloadFarChunks(int playerChunkX, int playerChunkZ);
+
+    // ── Hardware occlusion culling ───────────────────────────────────────
+    using OcclusionQuery = OcclusionCulling::Query;
+
+    void invalidateOcclusion(const glm::vec3& cameraPos, const glm::vec3& cameraFront);
+    bool shouldDrawChunk(OcclusionQuery& query);
+    bool isOcclusionTestDue(const OcclusionQuery& query) const;
+    void ensureOcclusionResources();
+    void issueOcclusionQuery(OcclusionQuery& query,
+                             const glm::vec3& minBounds,
+                             const glm::vec3& maxBounds,
+                             const glm::mat4& viewProjection, GLuint terrainShaderID);
+
+    std::unordered_map<long long, OcclusionQuery> occlusionQueries;
+    std::unordered_map<long long, OcclusionQuery> lodOcclusionQueries;
+    glm::vec3 lastOcclusionCameraPos{0.0f};
+    glm::vec3 lastOcclusionCameraFront{0.0f, 0.0f, -1.0f};
+    bool occlusionCameraValid = false;
+    unsigned int renderFrame = 0;
+    GLuint occlusionVAO = 0;
+    GLuint occlusionVBO = 0;
+    GLint uOcclusionViewProjectionLoc = -1;
+    GLint uOcclusionModelLoc = -1;
+    std::unique_ptr<Shader> occlusionShader;
+
+    int lastChunkX = INT_MAX;
+    int lastChunkZ = INT_MAX;
+    int lastLodTileX = INT_MAX;
+    int lastLodTileZ = INT_MAX;
+    int lastRequestedRenderDistance = -1;
+    unsigned int worldUpdateFrame = 0;
+    unsigned int lastLODRequestRefreshFrame = 0;
 
     std::unordered_map<long long, std::shared_ptr<Chunk>> chunks;
     mutable std::shared_mutex chunksMutex;
@@ -102,8 +140,8 @@ private:
                    int playerChunkX, int playerChunkZ) const;
 
     // Update the LOD tile registry every frame
-    void updateLOD(int playerChunkX, int playerChunkZ,
-                   glm::vec3 cameraPos, const Frustum& frustum);
+    void updateLOD(int playerChunkX, int playerChunkZ, const Frustum& frustum,
+                   bool isLoading, bool refreshRequests);
 
     // Submit a LOD mesh build request to the worker
     void requestLODTile(int tileX, int tileZ, int level);

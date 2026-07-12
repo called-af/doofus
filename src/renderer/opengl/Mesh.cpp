@@ -1,7 +1,8 @@
 #include "Mesh.h"
 
-Mesh::Mesh(float *vertices, unsigned int size) {
+Mesh::Mesh(const float *vertices, unsigned int size) {
   vertexCount = size / (7 * sizeof(float));
+  bufferCapacity = size;
 
   glGenVertexArrays(1, &VAO);
   glGenBuffers(1, &VBO);
@@ -31,11 +32,15 @@ Mesh::Mesh(float *vertices, unsigned int size) {
   glEnableVertexAttribArray(3);
 }
 
-void Mesh::update(float *vertices, unsigned int size) {
+void Mesh::update(const float *vertices, unsigned int size) {
   vertexCount = size / (7 * sizeof(float));
 
   glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, size, vertices, GL_DYNAMIC_DRAW);
+  if (size > bufferCapacity) {
+    bufferCapacity = size;
+    glBufferData(GL_ARRAY_BUFFER, bufferCapacity, nullptr, GL_DYNAMIC_DRAW);
+  }
+  glBufferSubData(GL_ARRAY_BUFFER, 0, size, vertices);
 }
 
 void Mesh::draw() {

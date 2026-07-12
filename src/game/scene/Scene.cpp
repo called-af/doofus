@@ -263,12 +263,11 @@ void Scene::render() {
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-  world.draw(playerTransform.position.x, playerTransform.position.z,
-             frustum, shader->id);
+  world.draw(camera.position, camera.front, frustum, projection * view, shader->id);
 
   // ── LOD tiles (low resolution, long range) ──────────────────────────────
   // Enable alpha blending for spawn fade-in animation
-  world.drawLOD(frustum, shader->id);
+  world.drawLOD(camera.position, frustum, projection * view, shader->id);
   glDisable(GL_BLEND);
 
   /*

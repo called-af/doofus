@@ -37,7 +37,7 @@ public:
   // Small near plane so close objects are not clipped
   static inline float nearPlane = 0.1f;
   // Far plane large enough to cover the entire LOD5 ring
-  static inline float farPlane = 12000.0f;
+  static inline float farPlane = 22000.0f;
 
   static inline float mouseSensitivity = 0.1f;
 
@@ -74,26 +74,26 @@ public:
 
   // LOD1: high resolution, nearest ring (2×2 chunks per tile)
   static inline int lod1Start = 16;
-  static inline int lod1End   = 36;
+  static inline int lod1End   = 55;
 
   // LOD2: medium resolution (4×4 chunks per tile)
-  static inline int lod2Start = 36;
-  static inline int lod2End   = 72;
+  static inline int lod2Start = 55;
+  static inline int lod2End   = 110;
 
   // LOD3: low resolution (8×8 chunks per tile)
-  static inline int lod3Start = 72;
-  static inline int lod3End   = 144;
+  static inline int lod3Start = 110;
+  static inline int lod3End   = 225;
 
   // LOD4: very low resolution (16×16 chunks per tile)
-  static inline int lod4Start = 144;
-  static inline int lod4End   = 288;
+  static inline int lod4Start = 225;
+  static inline int lod4End   = 450;
 
   // LOD5: ultra low resolution, very far distance (32×32 chunks per tile)
-  static inline int lod5Start = 288;
-  static inline int lod5End   = 576;
+  static inline int lod5Start = 450;
+  static inline int lod5End   = 1200;
 
   // Total LOD render distance — must equal lod5End
-  static inline int lodRenderDistance = 576;
+  static inline int lodRenderDistance = 1200;
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Worker threads
@@ -270,8 +270,8 @@ public:
   // ======================
 
   // fogEnd is aligned with farPlane so fog covers the far render boundary of LOD5
-  static inline float fogStart = 1200.0f;
-  static inline float fogEnd   = 5000.0f;
+  static inline float fogStart = 9000.0f;
+  static inline float fogEnd   = 18000.0f;
 
   // ======================
   // PLAYER
