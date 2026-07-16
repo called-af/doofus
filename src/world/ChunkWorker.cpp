@@ -24,11 +24,14 @@ ChunkWorker::ChunkWorker(World* worldPtr)
     if (Setting::maxWorkerThreads > 0) {
         n = (unsigned int)Setting::maxWorkerThreads;
     } else {
-        // Reserve 1 core for the main thread + render thread
-        n = (hw > 2) ? (hw - 1) : 2;
+        // Terrain sampling is CPU heavy.  Reserving only one core can starve
+        // the main/render thread and cause sharp FPS drops while moving.
+        // Four workers keep mesh streaming responsive without saturating CPU.
+        n = (hw > 2) ? std::min(hw - 1, 4u) : 2;
     }
-    // Hard cap: no more than 8 threads because the bottleneck is usually I/O, not CPU
-    n = std::min(n, 8u);
+    // Explicit settings may still choose fewer/more workers, but avoid an
+    // accidental oversized pool on high-core CPUs.
+    n = std::clamp(n, 2u, 8u);
 
     for (unsigned int i = 0; i < n; i++)
         workers.emplace_back(&ChunkWorker::run, this);

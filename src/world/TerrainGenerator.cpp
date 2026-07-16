@@ -104,16 +104,9 @@ int TerrainGenerator::sampleLODHeightAt(int worldX, int worldZ, int level)
     const int coneTop = std::min(155 + heightOffset, Chunk::HEIGHT - 10);
     const int coneBottom = std::max(110 + heightOffset, 40);
 
-    for (int y = coneTop; y >= coneBottom; --y) {
-      const float heightFactor = static_cast<float>(y - coneBottom)
-          / static_cast<float>(coneTop - coneBottom);
-      const float requiredIntensity = std::pow(1.0f - heightFactor, 1.4f);
-      const float roughness = FBMNoise::generate(worldX * 0.2f, y * 0.15f,
-                                                  2, 0.5f, 0.5f, Setting::seed) * 0.07f;
-      if (intensity > requiredIntensity + roughness)
-        return y;
-    }
-    return height;
+    // The highest solid block of the floating island is almost always coneTop.
+    // Returning it directly avoids the expensive loop and FBMNoise calls.
+    return coneTop;
   }
 
   const float raw = (terrain.plateau - Setting::plateauThreshold)

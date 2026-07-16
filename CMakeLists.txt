@@ -4,6 +4,19 @@ project(doofus)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Default to Release build type if not specified
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
+endif()
+
+# Enable compiler optimizations
+if(MSVC)
+  add_compile_options(/O2 /Oi /Ot /Oy /GL)
+  add_link_options(/LTCG)
+else()
+  add_compile_options(-O3 -march=native)
+endif()
+
 find_package(SDL3 REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(Freetype REQUIRED)

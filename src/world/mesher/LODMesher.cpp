@@ -76,10 +76,9 @@ void wallZ(std::vector<float>& out, float z, float x0, float x1,
 SurfaceCell sampleCell(int level, int x0, int z0, int step,
                        const LODMesher::BlockQuery& block, const LODMesher::HeightQuery& height)
 {
-    // Four samples on LOD1 and an 8x8 area vote on LOD2.  This low-pass vote
-    // is specifically for floating islands; a single sparse noise sample was
-    // the source of the random missing-texture/geometry patches.
-    const int sampleAxis = level == 1 ? 2 : 8;
+    // Four samples on LOD1 (2x2) and a 3x3 area vote on LOD2. This low-pass vote
+    // prevents geometry cracking/holes while keeping sampling extremely light.
+    const int sampleAxis = level == 1 ? 2 : 3;
     int heights = 0, count = 0;
     std::array<int, 5> votes{};
     for (int sz = 0; sz < sampleAxis; ++sz) for (int sx = 0; sx < sampleAxis; ++sx) {
@@ -125,16 +124,21 @@ void buildHeightmap(int level, int originX, int originZ, int step,
                     const LODMesher::BlockQuery& block, const LODMesher::HeightQuery& height,
                     std::vector<float>& out)
 {
-    constexpr int points = kCells + 1;
-    std::array<float, points * points> h{};
-    std::array<BlockType, points * points> type{};
+    // LOD4/5 are horizon meshes.  Keeping 16x16 cells there spends four
+    // times the vertices for detail hidden by fog; 8x8 preserves the broad
+    // plateau/mountain silhouette while substantially reducing GPU work.
+    const int cells = level == 3 ? kCells : 8;
+    const int cellStep = (step * kCells) / cells;
+    const int points = cells + 1;
+    std::vector<float> h(points * points);
+    std::vector<BlockType> type(points * points);
     for (int z=0; z<points; ++z) for (int x=0; x<points; ++x) {
-        const int i=z*points+x, wx=originX+x*step, wz=originZ+z*step;
+        const int i=z*points+x, wx=originX+x*cellStep, wz=originZ+z*cellStep;
         h[i]=float(std::max(0,height(wx,wz))+1); type[i]=block(wx,int(h[i]-1),wz);
     }
-    const float cliff = std::max(float(Setting::terraceHeight), float(step) * .35f);
-    for (int z=0; z<kCells; ++z) for (int x=0; x<kCells; ++x) {
-        const int i=z*points+x; const float x0=originX+x*step, z0=originZ+z*step, x1=x0+step, z1=z0+step;
+    const float cliff = std::max(float(Setting::terraceHeight), float(cellStep) * .35f);
+    for (int z=0; z<cells; ++z) for (int x=0; x<cells; ++x) {
+        const int i=z*points+x; const float x0=originX+x*cellStep, z0=originZ+z*cellStep, x1=x0+cellStep, z1=z0+cellStep;
         top(out,x0,z0,x1,z1,h[i],h[i+1],h[i+points+1],h[i+points],layerFor(type[i],true));
         // LOD3 intentionally has no skirts: it is the transition heightmap
         // ring, where the cheaper gently interpolated silhouette is preferred.
@@ -142,10 +146,10 @@ void buildHeightmap(int level, int originX, int originZ, int step,
 
         // LOD4-5 retain skirts across real cliffs and on their outer edges.
         const float side=layerFor(type[i],false);
-        if (x==0 || std::abs(h[i]-h[i-1])>cliff) wallX(out,x0,z0,z1,x==0 ? std::max(0.0f,h[i]-step*2.0f) : h[i-1],h[i],side,false);
-        if (x==kCells-1 || std::abs(h[i+1]-h[i+2])>cliff) wallX(out,x1,z0,z1,x==kCells-1 ? std::max(0.0f,h[i+1]-step*2.0f) : h[i+2],h[i+1],side,true);
-        if (z==0 || std::abs(h[i]-h[i-points])>cliff) wallZ(out,z0,x0,x1,z==0 ? std::max(0.0f,h[i]-step*2.0f) : h[i-points],h[i],side,false);
-        if (z==kCells-1 || std::abs(h[i+points]-h[i+2*points])>cliff) wallZ(out,z1,x0,x1,z==kCells-1 ? std::max(0.0f,h[i+points]-step*2.0f) : h[i+2*points],h[i+points],side,true);
+        if (x==0 || std::abs(h[i]-h[i-1])>cliff) wallX(out,x0,z0,z1,x==0 ? std::max(0.0f,h[i]-cellStep*2.0f) : h[i-1],h[i],side,false);
+        if (x==cells-1 || std::abs(h[i+1]-h[i+2])>cliff) wallX(out,x1,z0,z1,x==cells-1 ? std::max(0.0f,h[i+1]-cellStep*2.0f) : h[i+2],h[i+1],side,true);
+        if (z==0 || std::abs(h[i]-h[i-points])>cliff) wallZ(out,z0,x0,x1,z==0 ? std::max(0.0f,h[i]-cellStep*2.0f) : h[i-points],h[i],side,false);
+        if (z==cells-1 || std::abs(h[i+points]-h[i+2*points])>cliff) wallZ(out,z1,x0,x1,z==cells-1 ? std::max(0.0f,h[i+points]-cellStep*2.0f) : h[i+2*points],h[i+points],side,true);
     }
 }
 } // namespace

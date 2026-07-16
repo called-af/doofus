@@ -138,17 +138,29 @@ void World::cacheUniformLocations(GLuint shaderID)
 bool World::inLODRing(int tileX, int tileZ, int level,
                       int playerChunkX, int playerChunkZ) const
 {
-    int cov = (1 << level); // chunks per tile side
+    const int cov = (1 << level); // chunks per tile side
 
-    // Tile centre in chunk units
-    float cx = tileX * cov + cov * 0.5f;
-    float cz = tileZ * cov + cov * 0.5f;
+    // Tile bounds in chunk coordinates
+    const float minX = (float)(tileX * cov);
+    const float maxX = (float)((tileX + 1) * cov);
+    const float minZ = (float)(tileZ * cov);
+    const float maxZ = (float)((tileZ + 1) * cov);
 
-    // Match the circular full-detail chunk radius.  Chebyshev distance made
-    // LOD1/2 square and produced a visibly uneven LOD1 → LOD2 transition.
-    float dx   = std::abs(cx - playerChunkX);
-    float dz   = std::abs(cz - playerChunkZ);
-    float dist = std::sqrt(dx * dx + dz * dz);
+    // Find closest point on the tile to the player chunk
+    const float pX = (float)playerChunkX;
+    const float pZ = (float)playerChunkZ;
+    const float closestX = std::max(minX, std::min(pX, maxX));
+    const float closestZ = std::max(minZ, std::min(pZ, maxZ));
+    const float dxClosest = closestX - pX;
+    const float dzClosest = closestZ - pZ;
+    const float minDistSquared = dxClosest * dxClosest + dzClosest * dzClosest;
+
+    // Find furthest point on the tile to the player chunk
+    const float furthestX = (std::abs(minX - pX) > std::abs(maxX - pX)) ? minX : maxX;
+    const float furthestZ = (std::abs(minZ - pZ) > std::abs(maxZ - pZ)) ? minZ : maxZ;
+    const float dxFurthest = furthestX - pX;
+    const float dzFurthest = furthestZ - pZ;
+    const float maxDistSquared = dxFurthest * dxFurthest + dzFurthest * dzFurthest;
 
     int startDist, endDist;
     switch (level) {
@@ -160,7 +172,10 @@ bool World::inLODRing(int tileX, int tileZ, int level,
         default: return false;
     }
 
-    return dist >= startDist && dist < endDist;
+    const float startDistSq = (float)(startDist * startDist);
+    const float endDistSq   = (float)(endDist * endDist);
+
+    return maxDistSquared >= startDistSq && minDistSquared < endDistSq;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,7 +281,10 @@ void World::updateLOD(int playerChunkX, int playerChunkZ, const Frustum& frustum
                     const glm::vec3 minBounds(tx * tileSize, 0.0f, tz * tileSize);
                     const glm::vec3 maxBounds = minBounds + glm::vec3(
                         tileSize, (float)Chunk::HEIGHT, tileSize);
-                    if (!isLoading && !frustum.isBoxVisible(minBounds, maxBounds))
+                    // Loading used to enqueue the complete 1200-chunk circle.
+                    // Those thousands of unseen LOD jobs kept CPU cores busy
+                    // after gameplay began and caused movement hitches.
+                    if (!frustum.isBoxVisible(minBounds, maxBounds))
                         continue;
 
                     requestLODTile(tx, tz, level);
@@ -415,17 +433,30 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
 
     // ── Dispatch mesh requests (batched to avoid frame hitches) ───────────
     // Sort the remesh queue by priority (closest + in-frustum first)
-    std::sort(remeshQueue.begin(), remeshQueue.end(),
-        [&](long long a, long long b) {
-            auto itA = chunks.find(a);
-            auto itB = chunks.find(b);
-            if (itA == chunks.end() || itB == chunks.end()) return false;
-            int pA = calculatePriority(itA->second->chunkX, itA->second->chunkZ,
-                                       cameraPos, cameraFront, frustum, isLoading);
-            int pB = calculatePriority(itB->second->chunkX, itB->second->chunkZ,
-                                       cameraPos, cameraFront, frustum, isLoading);
-            return pA < pB;
+    struct PrioritySortedKey {
+        int priority;
+        long long key;
+    };
+    std::vector<PrioritySortedKey> sortedQueue;
+    sortedQueue.reserve(remeshQueue.size());
+
+    for (long long key : remeshQueue) {
+        auto it = chunks.find(key);
+        if (it == chunks.end()) continue;
+        int p = calculatePriority(it->second->chunkX, it->second->chunkZ,
+                                  cameraPos, cameraFront, frustum, isLoading);
+        sortedQueue.push_back({p, key});
+    }
+
+    std::sort(sortedQueue.begin(), sortedQueue.end(),
+        [](const PrioritySortedKey& a, const PrioritySortedKey& b) {
+            return a.priority < b.priority;
         });
+
+    remeshQueue.clear();
+    for (const auto& item : sortedQueue) {
+        remeshQueue.push_back(item.key);
+    }
 
     // Maximum dispatches per frame is controlled by Setting::maxMeshDispatchPerFrame
     const int MAX_DISPATCH = Setting::maxMeshDispatchPerFrame;
@@ -645,7 +676,12 @@ void World::draw(const glm::vec3& cameraPos, const glm::vec3& cameraFront,
     const int playerChunkX = (int)std::floor(cameraPos.x / Chunk::SIZE);
     const int playerChunkZ = (int)std::floor(cameraPos.z / Chunk::SIZE);
     const int rd = Setting::renderDistance;
-    std::vector<std::pair<long long, Chunk*>> visibleChunks;
+    struct DistanceSortedChunk {
+        float distanceSq;
+        long long key;
+        Chunk* chunk;
+    };
+    std::vector<DistanceSortedChunk> visibleChunks;
     visibleChunks.reserve(chunks.size());
 
     for (auto& [key, chunk] : chunks) {
@@ -653,24 +689,26 @@ void World::draw(const glm::vec3& cameraPos, const glm::vec3& cameraFront,
         const int dz = std::abs(chunk->chunkZ - playerChunkZ);
         if (dx > rd || dz > rd || chunk->empty || !chunk->mesh) continue;
         if (!frustum.isBoxVisible(chunk->getMinBounds(), chunk->getMaxBounds())) continue;
-        visibleChunks.emplace_back(key, chunk.get());
+
+        const glm::vec3 center = (chunk->getMinBounds() + chunk->getMaxBounds()) * 0.5f;
+        const glm::vec3 delta = center - cameraPos;
+        const float distSq = glm::dot(delta, delta);
+        visibleChunks.push_back({distSq, key, chunk.get()});
     }
 
     // Draw near terrain first so depth testing rejects hidden fragments early.
     std::sort(visibleChunks.begin(), visibleChunks.end(),
-        [&cameraPos](const auto& a, const auto& b) {
-            const glm::vec3 aCenter = (a.second->getMinBounds() + a.second->getMaxBounds()) * 0.5f;
-            const glm::vec3 bCenter = (b.second->getMinBounds() + b.second->getMaxBounds()) * 0.5f;
-            const glm::vec3 aDelta = aCenter - cameraPos;
-            const glm::vec3 bDelta = bCenter - cameraPos;
-            return glm::dot(aDelta, aDelta) < glm::dot(bDelta, bDelta);
+        [](const DistanceSortedChunk& a, const DistanceSortedChunk& b) {
+            return a.distanceSq < b.distanceSq;
         });
 
     constexpr int minimumOcclusionDistance = 2;
     int issuedQueries = 0;
     constexpr int maximumQueriesPerFrame = 32;
 
-    for (const auto& [key, chunk] : visibleChunks) {
+    for (const auto& item : visibleChunks) {
+        Chunk* chunk = item.chunk;
+        long long key = item.key;
         const int chunkDistance = std::max(
             std::abs(chunk->chunkX - playerChunkX),
             std::abs(chunk->chunkZ - playerChunkZ));
@@ -716,31 +754,38 @@ void World::drawLOD(const glm::vec3& cameraPos, const Frustum& frustum,
     glUniform1i(uIsLODLoc, 1);
     glUniform1f(uTimeLoc, (float)(SDL_GetTicks() / 1000.0));
 
-    std::vector<std::pair<long long, LODChunk*>> visibleTiles;
+    struct DistanceSortedTile {
+        float distanceSq;
+        long long key;
+        LODChunk* tile;
+    };
+    std::vector<DistanceSortedTile> visibleTiles;
     visibleTiles.reserve(lodChunks.size());
 
     for (auto& [key, lc] : lodChunks) {
         if (lc->empty)  continue;
         if (!lc->mesh)  continue;
         if (!frustum.isBoxVisible(lc->minBounds, lc->maxBounds)) continue;
-        visibleTiles.emplace_back(key, lc.get());
+
+        const glm::vec3 center = (lc->minBounds + lc->maxBounds) * 0.5f;
+        const glm::vec3 delta = center - cameraPos;
+        const float distSq = glm::dot(delta, delta);
+        visibleTiles.push_back({distSq, key, lc.get()});
     }
 
     // Process near tiles first so they populate depth before the conservative
     // occlusion proxy tests for farther LOD levels.
     std::sort(visibleTiles.begin(), visibleTiles.end(),
-        [&cameraPos](const auto& a, const auto& b) {
-            const glm::vec3 aCenter = (a.second->minBounds + a.second->maxBounds) * 0.5f;
-            const glm::vec3 bCenter = (b.second->minBounds + b.second->maxBounds) * 0.5f;
-            const glm::vec3 aDelta = aCenter - cameraPos;
-            const glm::vec3 bDelta = bCenter - cameraPos;
-            return glm::dot(aDelta, aDelta) < glm::dot(bDelta, bDelta);
+        [](const DistanceSortedTile& a, const DistanceSortedTile& b) {
+            return a.distanceSq < b.distanceSq;
         });
 
     int issuedQueries = 0;
     constexpr int maximumQueriesPerFrame = 32;
 
-    for (const auto& [key, tile] : visibleTiles) {
+    for (const auto& item : visibleTiles) {
+        LODChunk* tile = item.tile;
+        long long key = item.key;
         OcclusionQuery& query = lodOcclusionQueries[key];
         if (!shouldDrawChunk(query) && !isOcclusionTestDue(query))
             continue;

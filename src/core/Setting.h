@@ -37,7 +37,7 @@ public:
   // Small near plane so close objects are not clipped
   static inline float nearPlane = 0.1f;
   // Far plane large enough to cover the entire LOD5 ring
-  static inline float farPlane = 22000.0f;
+  static inline float farPlane = 11000.0f;
 
   static inline float mouseSensitivity = 0.1f;
 
@@ -55,7 +55,7 @@ public:
   // ======================
 
   // Full-detail chunk render distance. Must equal lod1Start.
-  static inline int renderDistance = 16;
+  static inline int renderDistance = 12;
 
   // ─────────────────────────────────────────────────────────────────────────
   //  5-Level LOD System
@@ -73,27 +73,27 @@ public:
   // ─────────────────────────────────────────────────────────────────────────
 
   // LOD1: high resolution, nearest ring (2×2 chunks per tile)
-  static inline int lod1Start = 16;
-  static inline int lod1End   = 55;
+  static inline int lod1Start = 12;
+  static inline int lod1End   = 36;
 
   // LOD2: medium resolution (4×4 chunks per tile)
-  static inline int lod2Start = 55;
-  static inline int lod2End   = 110;
+  static inline int lod2Start = 36;
+  static inline int lod2End   = 72;
 
   // LOD3: low resolution (8×8 chunks per tile)
-  static inline int lod3Start = 110;
-  static inline int lod3End   = 225;
+  static inline int lod3Start = 72;
+  static inline int lod3End   = 144;
 
   // LOD4: very low resolution (16×16 chunks per tile)
-  static inline int lod4Start = 225;
-  static inline int lod4End   = 450;
+  static inline int lod4Start = 144;
+  static inline int lod4End   = 288;
 
   // LOD5: ultra low resolution, very far distance (32×32 chunks per tile)
-  static inline int lod5Start = 450;
-  static inline int lod5End   = 1200;
+  static inline int lod5Start = 288;
+  static inline int lod5End   = 576;
 
   // Total LOD render distance — must equal lod5End
-  static inline int lodRenderDistance = 1200;
+  static inline int lodRenderDistance = 576;
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Worker threads
@@ -102,7 +102,8 @@ public:
   //  Optimal value: (physical CPU count - 1), minimum 2.
   //  This value is read by ChunkWorker during initialisation.
   // ─────────────────────────────────────────────────────────────────────────
-  static inline int maxWorkerThreads = 0; // 0 = auto (hardware_concurrency - 1, min 2)
+  // 0 = auto (up to four workers, leaving CPU time for render/main thread).
+  static inline int maxWorkerThreads = 0;
 
   // Maximum chunk meshes dispatched per frame (prevents hitching)
   static inline int maxMeshDispatchPerFrame = 6;
@@ -114,9 +115,9 @@ public:
   static inline int  shadowDistance  = 8;
   static inline bool enableShadows   = true;
 
-  // Shadow map 1024: worldTexel = (shadowDist*16*2)/1024 = 0.25 blocks per texel.
-  // Sufficient for smooth 3×3 PCF without being too heavy on the GPU.
-  static int shadowMapSize() { return 1024; }
+  // 512 keeps the near shadow stable while reducing depth-pass fill cost by
+  // 75% compared with 1024; PCF masks the lower resolution well.
+  static int shadowMapSize() { return 512; }
 
   // ======================
   // WORLD HEIGHT
@@ -130,7 +131,7 @@ public:
 
   static inline int seed = 1233;
 
-  static inline float daySpeed = 50.0f;
+  static inline float daySpeed = 1.0f;
 
   // ======================
   // BIOME
@@ -270,8 +271,8 @@ public:
   // ======================
 
   // fogEnd is aligned with farPlane so fog covers the far render boundary of LOD5
-  static inline float fogStart = 9000.0f;
-  static inline float fogEnd   = 18000.0f;
+  static inline float fogStart = 5000.0f;
+  static inline float fogEnd   = 9000.0f;
 
   // ======================
   // PLAYER

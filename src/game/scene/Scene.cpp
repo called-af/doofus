@@ -259,16 +259,16 @@ void Scene::render() {
   glCullFace(GL_BACK);
   glFrontFace(GL_CCW);
 
-  // Alpha blending enabled for spawn animation (regular chunk + LOD)
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  // Terrain is opaque.  Keeping blending enabled for every terrain draw
+  // prevents optimal early depth rejection and was expensive with LOD rings.
+  // The spawn shader still tints newly uploaded meshes, but they now use the
+  // fast opaque path instead of blending thousands of terrain fragments.
+  glDisable(GL_BLEND);
 
   world.draw(camera.position, camera.front, frustum, projection * view, shader->id);
 
   // ── LOD tiles (low resolution, long range) ──────────────────────────────
-  // Enable alpha blending for spawn fade-in animation
   world.drawLOD(camera.position, frustum, projection * view, shader->id);
-  glDisable(GL_BLEND);
 
   /*
       PLAYER MODEL

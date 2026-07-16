@@ -50,17 +50,18 @@ float calculateShadow(vec4 fragPosLightSpace, float ndotl)
     // Linear bias: very small for top face, slightly larger for side faces
     float bias = mix(0.0003, 0.002, 1.0 - clamp(ndotl, 0.0, 1.0));
 
-    // PCF 3×3: sample 9 points around projCoords, average the results
-    // textureSize(shadowMap, 0) = shadow map resolution → texelSize = 1 texel
+    // PCF 2×2: sample 4 points around projCoords, average the results.
+    // Combined with GL_LINEAR texture filtering, this produces extremely smooth
+    // shadows while reducing depth lookups by 55%.
     vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
     float shadow = 0.0;
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
+    for (int x = 0; x <= 1; ++x) {
+        for (int y = 0; y <= 1; ++y) {
             float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
             shadow += (projCoords.z - bias > pcfDepth) ? 1.0 : 0.0;
         }
     }
-    shadow /= 9.0;
+    shadow /= 4.0;
 
     return shadow;
 }
@@ -95,20 +96,24 @@ void main()
     if (texColor.a < 0.01) discard;
 
     // ─── Shadow ───────────────────────────────────────────────────────────
+    const float cameraDistance = length(FragPos - cameraPos);
     float shadow = 0.0;
-    if (uIsLOD == 0 && uShadowsEnabled == 1) {
+    // PCF is nine depth texture reads.  Do it only inside the actual shadow
+    // radius instead of paying that cost for every full-detail fragment.
+    if (uIsLOD == 0 && uShadowsEnabled == 1 && cameraDistance <= uShadowDistance) {
         shadow = calculateShadow(FragPosLightSpace, vNdotL);
     }
 
     // ─── Diffuse (Lambert) ────────────────────────────────────────────────
     // vNdotL already computed in vertex shader
-    vec3 direct = uLightColor * vNdotL * (1.0 - shadow * 0.85);
+    vec3 direct = uLightColor * vNdotL * (1.0 - shadow * 0.9);
 
     // ─── Phong Specular ─────────────────────────────────────────────────
     // Only for full-detail chunks (not LOD) and not for surfaces
     // facing downward (faceIdx bottom → aLight < 0.60)
     vec3 specular = vec3(0.0);
-    if (uIsLOD == 0 && vNdotL > 0.0 && uShadowsEnabled == 1) {
+    if (uIsLOD == 0 && vNdotL > 0.0 && uShadowsEnabled == 1
+        && cameraDistance <= uShadowDistance) {
         vec3 viewDir = normalize(cameraPos - FragPos);
         specular = calcSpecular(Normal, uLightDir, viewDir, uLightColor);
         // Reduce specular in shadowed areas
@@ -129,7 +134,7 @@ void main()
     vec3 lit   = texColor.rgb * light;
 
     // ─── Fog ──────────────────────────────────────────────────────────────
-    float dist              = length(FragPos - cameraPos);
+    float dist              = cameraDistance;
     float effectiveFogStart = (uIsLOD == 1) ? fogStart * 0.75 : fogStart;
     float ff                = calcFogFactor(dist, effectiveFogStart, fogEnd);
     vec3  color             = mix(fogColor, lit, ff);
