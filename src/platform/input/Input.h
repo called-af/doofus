@@ -8,6 +8,10 @@ public:
     static bool b;   
     static bool bPressed;
     static bool oPressed;
+    static bool v;
+    static bool vPressed;
+    static bool lctrl;
+    static bool lshift;
 
     static bool left_click;
     static bool right_click;

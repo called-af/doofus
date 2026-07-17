@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Font.h"
+#include "../../camera/Camera.h"
 #include <glm/glm.hpp>
 #include <string>
 
@@ -19,6 +20,7 @@ public:
         const glm::vec3& cameraFront,
         int worldHeight,
         const std::string& biomeName,
+        CameraMode cameraMode,
         bool visible
     );
 

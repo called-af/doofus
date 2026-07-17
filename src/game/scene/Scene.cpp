@@ -44,7 +44,7 @@ void Scene::init() {
                                           "assets/shaders/model.frag");
 
   playerModel = std::make_unique<Model>("assets/models/player.obj",
-                                        "assets/models/texture_player.png");
+                                        "assets/models/texture.png");
   /*
       CAMERA
   */
@@ -274,33 +274,37 @@ void Scene::render() {
       PLAYER MODEL
   */
 
-  glm::mat4 playerMatrix =
-      glm::translate(glm::mat4(1.0f), playerTransform.position);
+  if (camera.mode != CameraMode::FirstPerson) {
+    glm::mat4 playerMatrix =
+        glm::translate(glm::mat4(1.0f), playerTransform.position);
 
-  playerShader->use();
+    playerShader->use();
 
-  glUniformMatrix4fv(glGetUniformLocation(playerShader->id, "model"), 1,
-                     GL_FALSE, glm::value_ptr(playerMatrix));
+    glUniformMatrix4fv(glGetUniformLocation(playerShader->id, "model"), 1,
+                       GL_FALSE, glm::value_ptr(playerMatrix));
 
-  glUniformMatrix4fv(glGetUniformLocation(playerShader->id, "view"), 1,
-                     GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(playerShader->id, "view"), 1,
+                       GL_FALSE, glm::value_ptr(view));
 
-  glUniformMatrix4fv(glGetUniformLocation(playerShader->id, "projection"), 1,
-                     GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(glGetUniformLocation(playerShader->id, "projection"), 1,
+                       GL_FALSE, glm::value_ptr(projection));
 
-  playerModel->draw(*playerShader);
+    playerModel->draw(*playerShader);
+  }
 
   /*
       CROSSHAIR
   */
 
-  glDisable(GL_DEPTH_TEST);
-  glDisable(GL_CULL_FACE);
+  if (camera.mode == CameraMode::FirstPerson || camera.mode == CameraMode::ThirdPersonBack) {
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
 
-  crosshair.render(Setting::windowWidth, Setting::windowHeight);
+    crosshair.render(Setting::windowWidth, Setting::windowHeight);
 
-  glEnable(GL_DEPTH_TEST);
-  glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+  }
 
   int groundY = world.getHeight((int)playerTransform.position.x,
                                 (int)playerTransform.position.z);
@@ -315,7 +319,7 @@ void Scene::render() {
 
   debugOverlay.render(Setting::windowWidth, Setting::windowHeight, fps,
                       playerTransform.position, camera.front, groundY,
-                      biome->getName(), playerController.debugVisible);
+                      biome->getName(), camera.mode, playerController.debugVisible);
 }
 
 void Scene::setupShadowPass()

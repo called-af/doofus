@@ -43,7 +43,7 @@ std::string DebugOverlay::getCardinalDirection(const glm::vec3 &front) const {
 void DebugOverlay::render(int screenWidth, int screenHeight, float fps,
                           const glm::vec3 &playerPos,
                           const glm::vec3 &cameraFront, int worldHeight,
-                          const std::string &biomeName, bool visible) {
+                          const std::string &biomeName, CameraMode cameraMode, bool visible) {
   if (!visible)
     return;
 
@@ -58,10 +58,28 @@ void DebugOverlay::render(int screenWidth, int screenHeight, float fps,
   const float scale = 1.0f;
   const glm::vec3 white = {1.0f, 1.0f, 1.0f};
   const glm::vec3 yellow = {1.0f, 0.9f, 0.2f};
+  const glm::vec3 cyan = {0.2f, 0.9f, 1.0f};
 
   font.drawText("FPS: " + std::to_string((int)fps), startX, startY, scale,
                 yellow, screenWidth, screenHeight);
   startY += lineH;
+
+  std::string cameraModeStr = "";
+  switch (cameraMode) {
+    case CameraMode::FirstPerson:      cameraModeStr = "First Person"; break;
+    case CameraMode::ThirdPersonBack:  cameraModeStr = "Third Person (Back)"; break;
+    case CameraMode::ThirdPersonFront: cameraModeStr = "Third Person (Front)"; break;
+    case CameraMode::FreeCamera:       cameraModeStr = "Free Camera (Fly)"; break;
+  }
+  font.drawText("Camera Mode: " + cameraModeStr + " (Press V to Cycle)", startX, startY, scale,
+                cyan, screenWidth, screenHeight);
+  startY += lineH;
+
+  if (cameraMode == CameraMode::FreeCamera) {
+    font.drawText("Free Cam Controls: WASD = Move, Space = Up, L-Ctrl = Down, L-Shift = Boost", startX, startY, scale,
+                  cyan, screenWidth, screenHeight);
+    startY += lineH;
+  }
 
   font.drawText("XYZ: " + fmt1(playerPos.x) + " / " + fmt1(playerPos.y) +
                     " / " + fmt1(playerPos.z),

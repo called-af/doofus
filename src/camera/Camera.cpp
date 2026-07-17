@@ -5,6 +5,9 @@
 Camera::Camera() { updateVectors(); }
 
 glm::mat4 Camera::getViewMatrix() {
+  if (mode == CameraMode::ThirdPersonFront) {
+    return glm::lookAt(position, position - front, up);
+  }
   return glm::lookAt(position, position + front, up);
 }
 

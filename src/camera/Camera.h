@@ -4,6 +4,13 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+enum class CameraMode {
+  FirstPerson = 0,
+  ThirdPersonBack = 1,
+  ThirdPersonFront = 2,
+  FreeCamera = 3
+};
+
 class Camera {
 public:
   glm::vec3 position = {Setting::spawnX,
@@ -16,6 +23,8 @@ public:
 
   float yaw = Setting::defaultYaw;
   float pitch = Setting::defaultPitch;
+
+  CameraMode mode = CameraMode::FirstPerson;
 
   Camera();
 

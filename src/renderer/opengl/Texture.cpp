@@ -54,6 +54,8 @@ Texture::Texture(
         GL_CLAMP_TO_EDGE
     );
 
+    // WRAP
+
     glTexParameteri(
         GL_TEXTURE_2D,
         GL_TEXTURE_WRAP_T,
@@ -65,6 +67,8 @@ Texture::Texture(
     int width;
     int height;
     int channels;
+
+    stbi_set_flip_vertically_on_load(false);
 
     unsigned char* data =
         stbi_load(

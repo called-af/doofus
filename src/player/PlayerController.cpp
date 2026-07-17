@@ -39,6 +39,15 @@ void PlayerController::update(Camera &camera, TransformComponent &transform,
   }
 
   /*
+      CAMERA MODE TOGGLE (using V key)
+  */
+
+  if (Input::vPressed) {
+    int nextMode = (static_cast<int>(camera.mode) + 1) % 4;
+    camera.mode = static_cast<CameraMode>(nextMode);
+  }
+
+  /*
       CAMERA
   */
 
@@ -56,70 +65,128 @@ void PlayerController::update(Camera &camera, TransformComponent &transform,
       MOVEMENT
   */
 
-  glm::vec3 right = glm::normalize(glm::cross(camera.front, camera.up));
-
-  glm::vec3 flatFront =
-      glm::normalize(glm::vec3(camera.front.x, 0.0f, camera.front.z));
-
-  glm::vec3 moveDir(0.0f);
-
-  if (Input::w)
-    moveDir += flatFront;
-
-  if (Input::s)
-    moveDir -= flatFront;
-
-  if (Input::a)
-    moveDir -= right;
-
-  if (Input::d)
-    moveDir += right;
-
-  if (glm::length(moveDir) > 0.0f) {
-    moveDir = glm::normalize(moveDir);
-
-    rigidbody.velocity.x = moveDir.x * Setting::moveSpeed;
-
-    rigidbody.velocity.z = moveDir.z * Setting::moveSpeed;
-  } else {
+  if (camera.mode == CameraMode::FreeCamera) {
+    // Stop player horizontal movement
     rigidbody.velocity.x = 0.0f;
     rigidbody.velocity.z = 0.0f;
-  }
 
-  /*
-      JUMP
-  */
+    // Free camera controls
+    float speed = 15.0f;
+    if (Input::lshift) {
+      speed *= 3.0f; // Boost speed
+    }
 
-  if (Input::space && rigidbody.grounded) {
-    rigidbody.velocity.y = rigidbody.jumpForce;
+    glm::vec3 right = glm::normalize(glm::cross(camera.front, camera.up));
+    glm::vec3 moveDir(0.0f);
+
+    if (Input::w)  moveDir += camera.front;
+    if (Input::s)  moveDir -= camera.front;
+    if (Input::a)  moveDir -= right;
+    if (Input::d)  moveDir += right;
+
+    if (Input::space) moveDir += glm::vec3(0.0f, 1.0f, 0.0f);
+    if (Input::lctrl) moveDir -= glm::vec3(0.0f, 1.0f, 0.0f);
+
+    if (glm::length(moveDir) > 0.0f) {
+      camera.position += glm::normalize(moveDir) * (speed * dt);
+    }
+  } else {
+    glm::vec3 right = glm::normalize(glm::cross(camera.front, camera.up));
+
+    glm::vec3 flatFront =
+        glm::normalize(glm::vec3(camera.front.x, 0.0f, camera.front.z));
+
+    glm::vec3 moveDir(0.0f);
+
+    if (Input::w)
+      moveDir += flatFront;
+
+    if (Input::s)
+      moveDir -= flatFront;
+
+    if (Input::a)
+      moveDir -= right;
+
+    if (Input::d)
+      moveDir += right;
+
+    if (glm::length(moveDir) > 0.0f) {
+      moveDir = glm::normalize(moveDir);
+
+      rigidbody.velocity.x = moveDir.x * Setting::moveSpeed;
+
+      rigidbody.velocity.z = moveDir.z * Setting::moveSpeed;
+    } else {
+      rigidbody.velocity.x = 0.0f;
+      rigidbody.velocity.z = 0.0f;
+    }
+
+    /*
+        JUMP
+    */
+
+    if (Input::space && rigidbody.grounded) {
+      rigidbody.velocity.y = rigidbody.jumpForce;
+    }
+
+    /*
+        CAMERA FOLLOW
+    */
+
+    glm::vec3 headPos = transform.position + glm::vec3(0.0f, Setting::cameraEyeHeight, 0.0f);
+
+    if (camera.mode == CameraMode::FirstPerson) {
+      camera.position = headPos;
+    } else if (camera.mode == CameraMode::ThirdPersonBack) {
+      float maxDistance = 4.0f;
+      float distance = maxDistance;
+      glm::vec3 checkDir = -camera.front;
+      float step = 0.1f;
+      for (float t = 0.0f; t <= maxDistance; t += step) {
+        glm::vec3 p = headPos + checkDir * t;
+        if (world.isSolid((int)std::floor(p.x), (int)std::floor(p.y), (int)std::floor(p.z))) {
+          distance = std::max(0.5f, t - 0.2f);
+          break;
+        }
+      }
+      camera.position = headPos - camera.front * distance;
+    } else if (camera.mode == CameraMode::ThirdPersonFront) {
+      float maxDistance = 4.0f;
+      float distance = maxDistance;
+      glm::vec3 checkDir = camera.front;
+      float step = 0.1f;
+      for (float t = 0.0f; t <= maxDistance; t += step) {
+        glm::vec3 p = headPos + checkDir * t;
+        if (world.isSolid((int)std::floor(p.x), (int)std::floor(p.y), (int)std::floor(p.z))) {
+          distance = std::max(0.5f, t - 0.2f);
+          break;
+        }
+      }
+      camera.position = headPos + camera.front * distance;
+    }
   }
 
   /*
       BLOCK INTERACTION
   */
 
-  if (Input::left_click) {
-    if (time.realTicks - lastBreakTick >= breakCooldown) {
-      raycast(camera, world, false);
+  if (camera.mode == CameraMode::FirstPerson || camera.mode == CameraMode::ThirdPersonBack) {
+    if (Input::left_click) {
+      if (time.realTicks - lastBreakTick >= breakCooldown) {
+        raycast(camera, world, false);
 
-      lastBreakTick = time.realTicks;
+        lastBreakTick = time.realTicks;
+      }
+    }
+
+    if (Input::right_click) {
+      if (time.realTicks - lastPlaceTick >= placeCooldown) {
+        raycast(camera, world, true);
+
+        lastPlaceTick = time.realTicks;
+      }
     }
   }
-
-  if (Input::right_click) {
-    if (time.realTicks - lastPlaceTick >= placeCooldown) {
-      raycast(camera, world, true);
-
-      lastPlaceTick = time.realTicks;
-    }
-  }
-
-  /*
-      CAMERA FOLLOW
-  */
-
-  camera.position =
-      transform.position + glm::vec3(0.0f, Setting::cameraEyeHeight, 0.0f);
 }
 
 void PlayerController::raycast(Camera &camera, World &world, bool place) {
