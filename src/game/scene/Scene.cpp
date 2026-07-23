@@ -32,11 +32,11 @@ void Scene::init() {
 
   atlas = std::make_unique<TextureArray>(
       std::vector<std::string>{
-          "assets/textures/grass.png",      // layer 0
-          "assets/textures/grass_side.png", // layer 1
-          "assets/textures/dirt.png",       // layer 2
-          "assets/textures/stone.png",      // layer 3
-          "assets/textures/sand.png",       // layer 4
+          "assets/textures/grass.png",     
+          "assets/textures/grass_side.png",
+          "assets/textures/dirt.png",      
+          "assets/textures/stone.png",     
+          "assets/textures/sand.png",      
       },
       16, true);
 

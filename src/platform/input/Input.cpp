@@ -10,6 +10,7 @@ bool Input::bPressed = false;
 bool Input::oPressed = false;
 bool Input::v = false;
 bool Input::vPressed = false;
+bool Input::c = false;
 bool Input::lctrl = false;
 bool Input::lshift = false;
 bool Input::left_click = false;

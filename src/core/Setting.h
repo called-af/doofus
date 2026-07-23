@@ -6,17 +6,18 @@
 #pragma once
 #include <string>
 
-class Setting {
+class Setting
+{
 public:
   // ======================
   // WINDOW
   // ======================
 
-  static inline int windowWidth  = 1280;
+  static inline int windowWidth = 1280;
   static inline int windowHeight = 720;
 
   static inline bool fullscreen = false;
-  static inline bool vsync      = false;
+  static inline bool vsync = false;
 
   // ======================
   // FONT
@@ -43,8 +44,8 @@ public:
 
   static inline float cameraEyeHeight = 1.7f;
 
-  static inline float defaultYaw   = -90.0f;
-  static inline float defaultPitch =   0.0f;
+  static inline float defaultYaw = -90.0f;
+  static inline float defaultPitch = 0.0f;
 
   static inline float spawnX = 0.0f;
   static inline float spawnY = 80.0f;
@@ -56,6 +57,11 @@ public:
 
   // Full-detail chunk render distance. Must equal lod1Start.
   static inline int renderDistance = 12;
+
+  // Flat baseline height while TerrainGenerator is being rebuilt from
+  // scratch. Used by computeHeight() until real noise-based shaping
+  // (continentalness, plateau, etc.) is added back in.
+  static inline int flatHeight = 64;
 
   // ─────────────────────────────────────────────────────────────────────────
   //  5-Level LOD System
@@ -74,26 +80,26 @@ public:
 
   // LOD1: high resolution, nearest ring (2×2 chunks per tile)
   static inline int lod1Start = 12;
-  static inline int lod1End   = 36;
+  static inline int lod1End = 36;
 
   // LOD2: medium resolution (4×4 chunks per tile)
   static inline int lod2Start = 36;
-  static inline int lod2End   = 72;
+  static inline int lod2End = 72;
 
   // LOD3: low resolution (8×8 chunks per tile)
   static inline int lod3Start = 72;
-  static inline int lod3End   = 144;
+  static inline int lod3End = 144;
 
   // LOD4: very low resolution (16×16 chunks per tile)
   static inline int lod4Start = 144;
-  static inline int lod4End   = 288;
+  static inline int lod4End = 288;
 
   // LOD5: ultra low resolution, very far distance (32×32 chunks per tile)
   static inline int lod5Start = 288;
-  static inline int lod5End   = 576;
+  static inline int lod5End = 376;
 
   // Total LOD render distance — must equal lod5End
-  static inline int lodRenderDistance = 576;
+  static inline int lodRenderDistance = 376;
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Worker threads
@@ -112,8 +118,8 @@ public:
   // SHADOW
   // ======================
 
-  static inline int  shadowDistance  = 8;
-  static inline bool enableShadows   = true;
+  static inline int shadowDistance = 8;
+  static inline bool enableShadows = true;
 
   // 512 keeps the near shadow stable while reducing depth-pass fill cost by
   // 75% compared with 1024; PCF masks the lower resolution well.
@@ -137,99 +143,99 @@ public:
   // BIOME
   // ======================
 
-  static inline float biomeScale    = 0.005f;
-  static inline float plainsChance  = 0.5f;
+  static inline float biomeScale = 0.005f;
+  static inline float plainsChance = 0.5f;
 
   // ======================
   // TERRAIN
   // ======================
 
-  static inline int   baseTerrainHeight = 12;
-  static inline float terrainScale      = 0.008f;
-  static inline int   terrainAmplitude  = 90;
+  static inline int baseTerrainHeight = 12;
+  static inline float terrainScale = 0.008f;
+  static inline int terrainAmplitude = 90;
 
   // ======================
   // MOUNTAIN
   // ======================
 
-  static inline float mountainScale  = 0.0002f;
-  static inline int   mountainHeight = 130;
+  static inline float mountainScale = 0.0002f;
+  static inline int mountainHeight = 130;
 
   // ======================
   // CLIMATE
   // ======================
 
   static inline float temperatureScale = 0.0015f;
-  static inline float humidityScale    = 0.0015f;
+  static inline float humidityScale = 0.0015f;
 
   // ======================
   // BIOME RULES
   // ======================
 
-  static inline float mountainThreshold      = 0.74f;
-  static constexpr float mountainCoreThreshold = 0.88f;
+  static inline float mountainThreshold = 0.74f;
+  static constexpr float mountainCoreThreshold = 0.0088f;
 
   static inline float desertTemperature = 0.55f;
-  static inline float desertHumidity    = 0.45f;
+  static inline float desertHumidity = 0.45f;
 
   // ======================
   // CONTINENTALNESS
   // ======================
 
-  static inline float continentalScale  = 0.0018f;
-  static inline int   continentalHeight = 8;
+  static inline float continentalScale = 0.0018f;
+  static inline int continentalHeight = 8;
 
   // ======================
   // PEAKS & VALLEYS
   // ======================
 
   static inline float peaksScale = 0.010f;
-  static inline int   peakHeight = 60;
+  static inline int peakHeight = 60;
 
   // ======================
   // EROSION
   // ======================
 
-  static inline float erosionScale    = 0.003f;
+  static inline float erosionScale = 0.003f;
   static inline float erosionStrength = 5.0f;
 
   // ======================
   // RIVERS
   // ======================
 
-  static inline float riverScale     = 0.004f;
+  static inline float riverScale = 0.004f;
   static inline float riverThreshold = 0.015f;
-  static inline int   riverDepth     = 20;
+  static inline int riverDepth = 20;
 
   // ======================
   // CAVES
   // ======================
 
-  static inline float caveScale     = 0.0009f;
+  static inline float caveScale = 0.0009f;
   static inline float caveThreshold = 0.1f;
-  static inline int   caveMinY      = 5;
-  static inline int   caveMaxY      = 90;
+  static inline int caveMinY = 5;
+  static inline int caveMaxY = 90;
 
   // ======================
   // PILLARS
   // ======================
 
-  static constexpr float pillarScale     = 0.010f;
+  static constexpr float pillarScale = 0.010f;
   static constexpr float pillarThreshold = 0.45f;
 
   // ─────────────────────────────────────────────────────────────────────────
   //  PLATEAU — primary control for island shape
   // ─────────────────────────────────────────────────────────────────────────
 
-  static constexpr float plateauScale     = 0.0012f;
+  static constexpr float plateauScale = 0.0012f;
   // Low threshold so the island is wide from the start
   static constexpr float plateauThreshold = 0.52f;
 
   static constexpr int plateauBaseHeight = 85;
-  static constexpr int plateauHeight     = 45;
+  static constexpr int plateauHeight = 45;
 
   // Terraces
-  static constexpr int terraceCount  = 3;
+  static constexpr int terraceCount = 3;
   static constexpr int terraceHeight = 12;
 
   // Pillars
@@ -237,7 +243,7 @@ public:
 
   // Cliffs
   static constexpr float cliffErosionScale = 0.015f;
-  static constexpr float cliffErosionStr   = 5.0f;
+  static constexpr float cliffErosionStr = 5.0f;
 
   // Valleys
   static constexpr float valleyDepth = 45.0f;
@@ -247,15 +253,15 @@ public:
   // ======================
 
   // How frequently spike clusters appear (noise scale)
-  static inline float spikeNoiseScale    = 1.2f;
+  static inline float spikeNoiseScale = 1.2f;
   static inline float spikeSpawnThreshold = 0.01f;
 
-  static inline float spikeDepthFalloff          = 1.0f;
-  static inline float spikeDepthCutoff           = 0.0f;
-  static inline float spikeDepthThicknessMult    = 0.65f;
-  static inline float spikeTaperCurve            = 0.60f;
+  static inline float spikeDepthFalloff = 1.0f;
+  static inline float spikeDepthCutoff = 0.0f;
+  static inline float spikeDepthThicknessMult = 0.65f;
+  static inline float spikeTaperCurve = 0.60f;
   // High exponent makes the spike body rigid downward like a pillar
-  static inline float spikeTaperExponent         = 4.5f;
+  static inline float spikeTaperExponent = 4.5f;
 
   // Maximum length of stalactites & stalagmites
   static inline float stalactiteMaxLen = 65.0f;
@@ -263,8 +269,39 @@ public:
 
   // Island
   static constexpr float islandCorePillarThreshold = 0.40f;
-  static constexpr float islandEdgeCutoff          = 0.12f;
-  static constexpr int   islandFloorGuard          = 22;
+  static constexpr float islandEdgeCutoff = 0.12f;
+  static constexpr int islandFloorGuard = 22;
+
+  // ======================
+  // ISLAND (cellular placement)
+  // ======================
+
+  // Frekuensi cellular noise — nentuin rata-rata jarak antar pulau
+  static constexpr float islandCellScale = 0.006f;
+
+  // Batas radius normalisasi: di atas ini dianggap void (nggak ada pulau)
+  static constexpr float islandEdgeRadius = 0.55f;
+
+  // Variasi ukuran antar-pulau, di-drive dari cellId per cell
+  static constexpr float islandMinRadiusScale = 0.5f;  // pillar kecil
+  static constexpr float islandMaxRadiusScale = 1.8f;  // anchor island besar
+
+  static constexpr int islandMinTopHeight = 70;
+  static constexpr int islandMaxTopHeight = 130;
+  static constexpr int islandMinThickness = 8;
+  static constexpr int islandMaxThickness = 40;
+
+  // Mountain peak di atas anchor island besar
+  static constexpr float islandMountainScale = 0.02f;
+  static constexpr int islandMountainMaxHeight = 60;
+  static constexpr float islandMountainCellIdGate = 0.6f;
+
+  // Domain warp — biar silhouette pulau nggak simetris/radial sempurna
+  static constexpr float islandWarpScale = 0.003f;
+  static constexpr float islandWarpStrength = 40.0f;
+
+  // Neck tapering threshold — di bawah ini block di-skip (dead air di neck)
+  static constexpr float pillarMinSpawnStrength = 0.18f;
 
   // ======================
   // FOG
@@ -272,15 +309,15 @@ public:
 
   // fogEnd is aligned with farPlane so fog covers the far render boundary of LOD5
   static inline float fogStart = 5000.0f;
-  static inline float fogEnd   = 9000.0f;
+  static inline float fogEnd = 9000.0f;
 
   // ======================
   // PLAYER
   // ======================
 
-  static inline float moveSpeed     = 40.0f;
-  static inline float jumpForce     = 100.0f;
-  static inline float gravity       = -20.0f;
+  static inline float moveSpeed = 500.0f;
+  static inline float jumpForce = 100.0f;
+  static inline float gravity = -20.0f;
   static inline float reachDistance = 6.0f;
 
   static inline int breakCooldown = 5;

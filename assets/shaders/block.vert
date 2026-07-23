@@ -71,10 +71,10 @@ void main()
     vec3 pos = aPos;
     vSpawnT  = 1.0;
 
-    if (uLodSpawnTime >= 0.0) {
+    if (uIsLOD == 0 && uLodSpawnTime >= 0.0) {
         float elapsed  = uTime - uLodSpawnTime;
-        float duration = (uIsLOD == 1) ? LOD_SPAWN_DURATION : CHUNK_SPAWN_DURATION;
-        float rise     = (uIsLOD == 1) ? LOD_RISE_OFFSET    : CHUNK_RISE_OFFSET;
+        float duration = CHUNK_SPAWN_DURATION;
+        float rise     = CHUNK_RISE_OFFSET;
         float t        = clamp(elapsed / duration, 0.0, 1.0);
         float ease     = t * t * (3.0 - 2.0 * t);
         pos.y += mix(-rise, 0.0, ease);

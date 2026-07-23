@@ -10,6 +10,7 @@ public:
     static bool oPressed;
     static bool v;
     static bool vPressed;
+    static bool c;
     static bool lctrl;
     static bool lshift;
 
