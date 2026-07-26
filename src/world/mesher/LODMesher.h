@@ -43,6 +43,14 @@ public:
     using BlockQuery  = std::function<BlockType(int, int, int)>;
     // heightQuery(worldX, worldZ) -> highest solid Y (-1 if empty)
     using HeightQuery = std::function<int(int, int)>;
+    // solidQuery(worldX, worldY, worldZ) -> true if that exact voxel is solid.
+    // Needed because heightQuery only reports the topmost surface per column;
+    // it cannot tell whether the space between that height and the ground is
+    // hollow (e.g. a floating island's hourglass stem). solidQuery lets the
+    // mesher scan downward and stop a skirt/wall right where real ground
+    // actually ends, instead of assuming everything below is solid.
+    using SolidQuery  = std::function<bool(int, int, int)>;
+
 
     // Build the LOD mesh for a single tile.
     // outVertices is filled with vertex data (7 floats per vertex: x,y,z,u,v,layer,light).
@@ -52,6 +60,7 @@ public:
         int tileZ,
         const BlockQuery&   blockQuery,
         const HeightQuery&  heightQuery,
+        const SolidQuery&   solidQuery,
         std::vector<float>& outVertices
     );
 };

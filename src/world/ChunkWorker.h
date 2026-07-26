@@ -11,9 +11,9 @@
 
 class World;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// 
 //  Data Structures for Terrain Generation
-// ─────────────────────────────────────────────────────────────────────────────
+// 
 
 // Result of terrain generation from a worker thread
 struct GeneratedChunk
@@ -33,9 +33,9 @@ struct ChunkRequest
     bool operator<(const ChunkRequest& o) const { return priority > o.priority; }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// 
 //  Data Structures for Regular (full-detail) Mesh
-// ─────────────────────────────────────────────────────────────────────────────
+// 
 
 // Mesh build request for a single chunk (requires 4 neighbours)
 struct MeshRequest
@@ -62,13 +62,13 @@ struct MeshResult
     uint32_t           generation;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// 
 //  Data Structures for LOD Mesh
 //
 //  ChunkWorker accepts LODMeshRequests and produces LODMeshResults.
 //  The mesher uses blockQuery & heightQuery callbacks provided by World,
 //  so ChunkWorker does not need to know World internals.
-// ─────────────────────────────────────────────────────────────────────────────
+// 
 
 // LOD mesh build request for a single tile
 struct LODMeshRequest
@@ -83,6 +83,7 @@ struct LODMeshRequest
     // Callbacks from World — read-only data access, safe from any thread
     std::function<BlockType(int, int, int)> blockQuery;  // (wx, wy, wz) -> BlockType
     std::function<int(int, int)>            heightQuery; // (wx, wz)     -> int (highest Y)
+    std::function<bool(int, int, int)>     solidQuery;  // (wx, wy, wz) -> true if solid
 
     // priority_queue is a max-heap: invert the comparison so LOD1 is built
     // first, then LOD2 through LOD5.  This fills the visible near boundary
@@ -101,7 +102,7 @@ struct LODMeshResult
     uint32_t           generation = 0;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// 
 //  ChunkWorker
 //
 //  Thread pool that processes three types of work in parallel:
@@ -115,26 +116,26 @@ struct LODMeshResult
 //    Regular mesh : 55% — most frequently requested during gameplay
 //    Terrain      : 30% — important during initial loading
 //    LOD mesh     : 15% — not urgent, processed with remaining capacity
-// ─────────────────────────────────────────────────────────────────────────────
+// 
 class ChunkWorker
 {
 public:
     explicit ChunkWorker(World* world);
     ~ChunkWorker();
 
-    // ── Terrain ──────────────────────────────────────────────────────────
+    //  Terrain 
     void requestChunk(int x, int z, int priority, uint32_t generation);
     bool popFinishedChunk(GeneratedChunk& result);
 
-    // ── Regular mesh ─────────────────────────────────────────────────────
+    //  Regular mesh 
     void enqueueMeshRequest(MeshRequest req);
     bool popFinishedMesh(MeshResult& result);
 
-    // ── LOD mesh ─────────────────────────────────────────────────────────
+    //  LOD mesh
     void enqueueLODMeshRequest(LODMeshRequest req);
     bool popFinishedLODMesh(LODMeshResult& result);
 
-    // ── Queue management ──────────────────────────────────────────────────
+    //  Queue management
     void clearRequests();  // discard all pending (unprocessed) requests
     void flushFinished();  // discard results that are no longer relevant (old generation)
 

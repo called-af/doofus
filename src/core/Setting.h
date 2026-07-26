@@ -84,22 +84,22 @@ public:
 
   // LOD2: medium resolution (4×4 chunks per tile)
   static inline int lod2Start = 36;
-  static inline int lod2End = 72;
+  static inline int lod2End = 100;
 
   // LOD3: low resolution (8×8 chunks per tile)
-  static inline int lod3Start = 72;
-  static inline int lod3End = 144;
+  static inline int lod3Start = 100;
+  static inline int lod3End = 600;
 
   // LOD4: very low resolution (16×16 chunks per tile)
-  static inline int lod4Start = 144;
-  static inline int lod4End = 288;
+  static inline int lod4Start = 600;
+  static inline int lod4End = 700;
 
   // LOD5: ultra low resolution, very far distance (32×32 chunks per tile)
-  static inline int lod5Start = 288;
-  static inline int lod5End = 376;
+  static inline int lod5Start = 700;
+  static inline int lod5End = 800;
 
   // Total LOD render distance — must equal lod5End
-  static inline int lodRenderDistance = 376;
+  static inline int lodRenderDistance = 800;
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Worker threads
@@ -129,7 +129,7 @@ public:
   // WORLD HEIGHT
   // ======================
 
-  static constexpr int worldHeight = 256;
+  static constexpr int worldHeight = 480;
 
   // ======================
   // SEED
@@ -220,8 +220,8 @@ public:
   // PILLARS
   // ======================
 
-  static constexpr float pillarScale = 0.010f;
-  static constexpr float pillarThreshold = 0.45f;
+  static constexpr float pillarScale = 0.000010f;
+  static constexpr float pillarThreshold = 0.00045f;
 
   // ─────────────────────────────────────────────────────────────────────────
   //  PLATEAU — primary control for island shape
@@ -248,25 +248,6 @@ public:
   // Valleys
   static constexpr float valleyDepth = 45.0f;
 
-  // ======================
-  // STALACTITES & STALAGMITES
-  // ======================
-
-  // How frequently spike clusters appear (noise scale)
-  static inline float spikeNoiseScale = 1.2f;
-  static inline float spikeSpawnThreshold = 0.01f;
-
-  static inline float spikeDepthFalloff = 1.0f;
-  static inline float spikeDepthCutoff = 0.0f;
-  static inline float spikeDepthThicknessMult = 0.65f;
-  static inline float spikeTaperCurve = 0.60f;
-  // High exponent makes the spike body rigid downward like a pillar
-  static inline float spikeTaperExponent = 4.5f;
-
-  // Maximum length of stalactites & stalagmites
-  static inline float stalactiteMaxLen = 65.0f;
-  static inline float stalagmiteMaxLen = 55.0f;
-
   // Island
   static constexpr float islandCorePillarThreshold = 0.40f;
   static constexpr float islandEdgeCutoff = 0.12f;
@@ -276,32 +257,64 @@ public:
   // ISLAND (cellular placement)
   // ======================
 
-  // Frekuensi cellular noise — nentuin rata-rata jarak antar pulau
   static constexpr float islandCellScale = 0.006f;
 
-  // Batas radius normalisasi: di atas ini dianggap void (nggak ada pulau)
   static constexpr float islandEdgeRadius = 0.55f;
 
-  // Variasi ukuran antar-pulau, di-drive dari cellId per cell
-  static constexpr float islandMinRadiusScale = 0.5f;  // pillar kecil
-  static constexpr float islandMaxRadiusScale = 1.8f;  // anchor island besar
+  static constexpr float islandMinRadiusScale = 0.5f; 
+  static constexpr float islandMaxRadiusScale = 1.8f;  
 
   static constexpr int islandMinTopHeight = 70;
   static constexpr int islandMaxTopHeight = 130;
   static constexpr int islandMinThickness = 8;
   static constexpr int islandMaxThickness = 40;
 
-  // Mountain peak di atas anchor island besar
   static constexpr float islandMountainScale = 0.02f;
   static constexpr int islandMountainMaxHeight = 60;
   static constexpr float islandMountainCellIdGate = 0.6f;
 
-  // Domain warp — biar silhouette pulau nggak simetris/radial sempurna
   static constexpr float islandWarpScale = 0.003f;
   static constexpr float islandWarpStrength = 40.0f;
 
-  // Neck tapering threshold — di bawah ini block di-skip (dead air di neck)
   static constexpr float pillarMinSpawnStrength = 0.18f;
+
+  // ======================
+  // 3-TIER VERTICAL REALM (Heaven / Normal / Hell)
+  // ======================
+
+  // Tier 3 — Heaven (Heaven Archipelago Cluster Floating Realm — Rare, Super High Archipelagos)
+  static constexpr float heavenClusterSpacing  = 420.0f;  // Spacing between archipelago cluster centers (blocks)
+  static constexpr float heavenGridSize        = heavenClusterSpacing; // Alias for backward compatibility
+  static constexpr float heavenMinBaseY        = 320.0f;  // Base Y altitude for floating heaven realm
+  static constexpr float heavenMaxBaseY        = 410.0f;  // Max Y altitude for floating heaven realm
+  static constexpr float heavenSpawnChance     = 0.45f;   // Spawn probability per grid cell (45%)
+
+  // Size categories for Heaven Islands (Giant, Medium, Small)
+  static constexpr float heavenGiantRadiusMin  = 90.0f;
+  static constexpr float heavenGiantRadiusMax  = 135.0f;
+  static constexpr float heavenMediumRadiusMin = 40.0f;
+  static constexpr float heavenMediumRadiusMax = 75.0f;
+  static constexpr float heavenSmallRadiusMin  = 12.0f;
+  static constexpr float heavenSmallRadiusMax  = 28.0f;
+
+  // Silhouette, Plateau & Underbelly Tapering Parameters
+  static constexpr float heavenPlateauRatio    = 0.55f;   // Inner buildable plateau ratio before edge rim slope
+  static constexpr float heavenBellyExponent   = 1.10f;   // Inverted cone tapering exponent (cone terbalik)
+  static constexpr float heavenWarpScale       = 0.0035f; // Domain warp frequency for organic coastlines
+  static constexpr float heavenWarpStrength    = 0.75f;   // Domain warp intensity factor per column (high variation, non-circular)
+  static constexpr float heavenAnchorPeakHeight = 35.0f;  // Landmark mountain peak / crystal spire height on anchor islands
+  static constexpr float heavenSubIsletYMin     = -35.0f;  // Min Y elevation offset for satellite islets
+  static constexpr float heavenSubIsletYMax     = 10.0f;   // Max Y elevation offset for satellite islets
+
+  // Tier 1 — Hell (Bottom Fiery Underworld & Canyon Realm)
+  static constexpr float hellCanyonWidth = 95.0f;
+  static constexpr float hellSpineWarpScale1 = 0.002f;
+  static constexpr float hellSpineWarpScale2 = 0.015f;
+  static constexpr int hellCanyonFloorY = 8;
+  static constexpr int hellCanyonRimY = 45;
+  static constexpr float hellLavaThreshold = 0.55f;
+  static constexpr float hellObsidianThreshold = 0.38f;
+  static constexpr float hellSpikeNoiseScale = 0.035f;
 
   // ======================
   // FOG

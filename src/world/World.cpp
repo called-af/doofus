@@ -10,9 +10,7 @@
 #include <SDL3/SDL.h>
 #include <glm/gtc/matrix_transform.hpp>
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Constructor & Destructor
-// ─────────────────────────────────────────────────────────────────────────────
 
 World::World() { worker = std::make_unique<ChunkWorker>(this); }
 
@@ -33,9 +31,7 @@ World::~World()
         glDeleteVertexArrays(1, &occlusionVAO);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Chunk & LOD tile keys
-// ─────────────────────────────────────────────────────────────────────────────
 
 // Encode chunk coordinates into a single long long (unique key for unordered_map)
 long long World::getChunkKey(int x, int z)
@@ -50,9 +46,7 @@ long long World::getLODKey(int tileX, int tileZ, int level)
     return ((long long)(level & 0xF) << 60) | (((long long)(unsigned int)tileZ & 0x0FFFFFFF) << 30) | ((long long)(unsigned int)tileX & 0x0FFFFFFF);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Chunk access
-// ─────────────────────────────────────────────────────────────────────────────
 
 Chunk *World::getChunk(int chunkX, int chunkZ)
 {
@@ -69,9 +63,7 @@ std::shared_ptr<Chunk> World::getChunkShared(int chunkX, int chunkZ)
     return it != chunks.end() ? it->second : nullptr;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Mark a chunk as needing a remesh
-// ─────────────────────────────────────────────────────────────────────────────
 
 void World::markChunkDirty(Chunk *chunk)
 {
@@ -81,9 +73,7 @@ void World::markChunkDirty(Chunk *chunk)
     remeshQueue.push_back(getChunkKey(chunk->chunkX, chunk->chunkZ));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Load chunk — submit a generation request to the worker if not already queued
-// ─────────────────────────────────────────────────────────────────────────────
 
 void World::loadChunk(int chunkX, int chunkZ, glm::vec3 cameraPos,
                       glm::vec3 cameraFront, const Frustum &frustum,
@@ -119,9 +109,7 @@ void World::loadChunk(int chunkX, int chunkZ, glm::vec3 cameraPos,
     worker->requestChunk(chunkX, chunkZ, priority, worker->generation.load());
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Cache shader uniform locations — avoid glGetUniformLocation every frame
-// ─────────────────────────────────────────────────────────────────────────────
 
 void World::cacheUniformLocations(GLuint shaderID)
 {
@@ -133,13 +121,11 @@ void World::cacheUniformLocations(GLuint shaderID)
     uSpawnTimeLoc = glGetUniformLocation(shaderID, "uLodSpawnTime");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  inLODRing — check whether a tile falls within the correct LOD ring for its level
 //
 //  A level-L tile covers (2^L × 2^L) chunks. tileX/tileZ are tile coordinates
 //  (not chunk coordinates). A tile is considered valid when its radial
 //  distance from the player falls within [lodLStart, lodLEnd).
-// ─────────────────────────────────────────────────────────────────────────────
 
 bool World::inLODRing(int tileX, int tileZ, int level,
                       int playerChunkX, int playerChunkZ) const
@@ -201,9 +187,7 @@ bool World::inLODRing(int tileX, int tileZ, int level,
     return maxDistSquared >= startDistSq && minDistSquared < endDistSq;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  requestLODTile — submit a LOD mesh build request to the worker thread
-// ─────────────────────────────────────────────────────────────────────────────
 
 void World::requestLODTile(int tileX, int tileZ, int level)
 {
@@ -236,11 +220,14 @@ void World::requestLODTile(int tileX, int tileZ, int level)
     {
         return TerrainGenerator::sampleLODHeightAt(wx, wz, level);
     };
+    req.solidQuery = [](int wx, int wy, int wz) -> bool 
+    {
+        return TerrainGenerator::isSolidAt(wx, wz, wy);
+    };
 
     worker->enqueueLODMeshRequest(std::move(req));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  updateLOD — manage the LOD tile registry every frame (5 levels)
 //
 //  Ring logic mirrors CDLOD QuadTree::selectNodes:
@@ -255,12 +242,11 @@ void World::requestLODTile(int tileX, int tileZ, int level)
 //    2. Periodically request tiles that should exist but do not yet
 //    3. Receive finished meshes from the worker and upload them to the GPU
 //    4. Clean up queued tiles that have moved outside their ring
-// ─────────────────────────────────────────────────────────────────────────────
 
 void World::updateLOD(int playerChunkX, int playerChunkZ, const Frustum &frustum,
                       bool isLoading, bool refreshRequests)
 {
-    // ── Step 1: remove tiles that have left their ring ────────────────────
+    //  Step 1: remove tiles that have left their ring 
     for (auto it = lodChunks.begin(); it != lodChunks.end();)
     {
         auto &lc = it->second;
@@ -281,7 +267,7 @@ void World::updateLOD(int playerChunkX, int playerChunkZ, const Frustum &frustum
         }
     }
 
-    // ── Step 2: request missing tiles on a fixed cadence ──────────────────
+    //  Step 2: request missing tiles on a fixed cadence 
     // The registry itself is maintained every frame, but scanning all five
     // rings is amortized to keep gameplay frame times stable.
     if (refreshRequests)
@@ -346,7 +332,7 @@ void World::updateLOD(int playerChunkX, int playerChunkZ, const Frustum &frustum
         }
     }
 
-    // ── Step 3: receive results from the worker, upload to GPU ────────────
+    //  Step 3: receive results from the worker, upload to GPU 
     LODMeshResult result;
     while (worker->popFinishedLODMesh(result))
     {
@@ -381,7 +367,7 @@ void World::updateLOD(int playerChunkX, int playerChunkZ, const Frustum &frustum
         }
     }
 
-    // ── Step 4: clean up queued tiles that have left their ring ──────────
+    //  Step 4: clean up queued tiles that have left their ring 
     for (auto it = queuedLODTiles.begin(); it != queuedLODTiles.end();)
     {
         auto &[tx, tz, lvl] = it->second;
@@ -392,9 +378,7 @@ void World::updateLOD(int playerChunkX, int playerChunkZ, const Frustum &frustum
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  update — called every frame from the main thread
-// ─────────────────────────────────────────────────────────────────────────────
 
 void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
                    const Frustum &frustum, bool isLoading)
@@ -404,7 +388,7 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
     int playerChunkX = isLoading ? 0 : (int)std::floor(cameraPos.x / Chunk::SIZE);
     int playerChunkZ = isLoading ? 0 : (int)std::floor(cameraPos.z / Chunk::SIZE);
 
-    // ── Detect player chunk movement ──────────────────────────────────────
+    //  Detect player chunk movement 
     const bool playerChunkChanged = playerChunkX != lastChunkX || playerChunkZ != lastChunkZ;
 
     if (playerChunkChanged)
@@ -431,7 +415,7 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
         // that is the correct granularity. Do not wipe the LOD cache here.
     }
 
-    // ── Track tile movement without invalidating the complete LOD cache ────
+    //  Track tile movement without invalidating the complete LOD cache 
     // Tiles are immutable deterministic samples.  updateLOD removes only a
     // tile that fully leaves its own ring, so crossing a small chunk boundary
     // does not throw away hundreds of useful worker results.
@@ -443,7 +427,7 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
         lastLodTileZ = lodTileZ;
     }
 
-    // ── Request terrain generation within render distance ─────────────────
+    //  Request terrain generation within render distance ─
     const int rd = Setting::renderDistance;
     const int genRd = rd + 1;
     // Revisit the frustum periodically.  Chunks behind the player are not
@@ -466,7 +450,7 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
         unloadFarChunks(playerChunkX, playerChunkZ);
     }
 
-    // ── Receive finished terrain results from the worker ──────────────────
+    //  Receive finished terrain results from the worker 
     bool receivedChunk = false;
     GeneratedChunk genResult;
     while (worker->popFinishedChunk(genResult))
@@ -499,7 +483,7 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
         }
     }
 
-    // ── Dispatch mesh requests (batched to avoid frame hitches) ───────────
+    //  Dispatch mesh requests (batched to avoid frame hitches) ─
     // Sort the remesh queue by priority (closest + in-frustum first)
     struct PrioritySortedKey
     {
@@ -598,7 +582,7 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
 
     remeshQueue = std::move(requeue);
 
-    // ── Receive finished meshes from the worker, upload to GPU ───────────
+    //  Receive finished meshes from the worker, upload to GPU ─
     MeshResult meshResult;
     while (worker->popFinishedMesh(meshResult))
     {
@@ -619,7 +603,7 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
         }
     }
 
-    // ── Update LOD — active during initial world loading as well ──────────
+    //  Update LOD — active during initial world loading as well 
     // This requests rear and side rings before the player can move.
     constexpr unsigned int lodRequestRefreshFrames = 8;
     const bool refreshLODRequests = playerChunkChanged || (isLoading && receivedChunk) || worldUpdateFrame - lastLODRequestRefreshFrame >= lodRequestRefreshFrames;
@@ -628,9 +612,7 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
     updateLOD(playerChunkX, playerChunkZ, frustum, isLoading, refreshLODRequests);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  draw — render full-detail regular chunks
-// ─────────────────────────────────────────────────────────────────────────────
 
 void World::invalidateOcclusion(const glm::vec3 &cameraPos,
                                 const glm::vec3 &cameraFront)
@@ -934,9 +916,7 @@ void World::draw(const glm::vec3 &cameraPos, const glm::vec3 &cameraFront,
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  drawLOD — render low-resolution LOD tiles (far-range coverage)
-// ─────────────────────────────────────────────────────────────────────────────
 
 void World::drawLOD(const glm::vec3 &cameraPos, const Frustum &frustum,
                     const glm::mat4 &viewProjection, GLuint shaderID)
@@ -1014,9 +994,7 @@ void World::drawLOD(const glm::vec3 &cameraPos, const Frustum &frustum,
     glUniform1f(uSpawnTimeLoc, -1.0f);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Block operations
-// ─────────────────────────────────────────────────────────────────────────────
 
 bool World::isSolid(int x, int y, int z)
 {
@@ -1080,9 +1058,7 @@ void World::setBlock(int x, int y, int z, BlockType type)
             markChunkDirty(n);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  unloadFarChunks — remove chunks that are too far from the player
-// ─────────────────────────────────────────────────────────────────────────────
 
 void World::unloadFarChunks(int centerChunkX, int centerChunkZ)
 {
@@ -1111,7 +1087,6 @@ void World::unloadFarChunks(int centerChunkX, int centerChunkZ)
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  calculatePriority — compute generation/mesh priority for a chunk
 //
 //  Lower value = higher priority.
@@ -1119,7 +1094,6 @@ void World::unloadFarChunks(int centerChunkX, int centerChunkZ)
 //    - Distance from the player (closer = higher priority)
 //    - Whether the chunk is inside the camera frustum (in-frustum = higher priority)
 //    - View direction (directly in front of the camera = highest priority)
-// ─────────────────────────────────────────────────────────────────────────────
 
 int World::calculatePriority(int chunkX, int chunkZ, glm::vec3 cameraPos,
                              glm::vec3 cameraFront, const Frustum &frustum,

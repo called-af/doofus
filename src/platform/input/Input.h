@@ -23,7 +23,7 @@ public:
     static bool bracketRightPressed;
 
     static float mouseX;
-    static float mouseY;
+    static float mouseY; 
 
     static void beginFrame();
     static void handleEvent(SDL_Event& e);

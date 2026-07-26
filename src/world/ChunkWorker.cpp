@@ -7,11 +7,9 @@
 #include <algorithm>
 #include <random>
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  ChunkWorker — constructor & destructor
-// ─────────────────────────────────────────────────────────────────────────────
 
-ChunkWorker::ChunkWorker(World* worldPtr)
+ChunkWorker::ChunkWorker(World *worldPtr)
 {
     world = worldPtr;
 
@@ -21,9 +19,12 @@ ChunkWorker::ChunkWorker(World* worldPtr)
     //   Capped to avoid flooding the CPU while the game is running
     unsigned int hw = std::thread::hardware_concurrency();
     unsigned int n;
-    if (Setting::maxWorkerThreads > 0) {
+    if (Setting::maxWorkerThreads > 0)
+    {
         n = (unsigned int)Setting::maxWorkerThreads;
-    } else {
+    }
+    else
+    {
         // Terrain sampling is CPU heavy.  Reserving only one core can starve
         // the main/render thread and cause sharp FPS drops while moving.
         // Four workers keep mesh streaming responsive without saturating CPU.
@@ -42,14 +43,12 @@ ChunkWorker::~ChunkWorker()
     // Signal all threads to stop, then wait for them to finish
     running.store(false);
     cv.notify_all();
-    for (auto& w : workers)
+    for (auto &w : workers)
         if (w.joinable())
             w.join();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Terrain API
-// ─────────────────────────────────────────────────────────────────────────────
 
 void ChunkWorker::requestChunk(int x, int z, int priority, uint32_t gen)
 {
@@ -60,18 +59,17 @@ void ChunkWorker::requestChunk(int x, int z, int priority, uint32_t gen)
     cv.notify_one();
 }
 
-bool ChunkWorker::popFinishedChunk(GeneratedChunk& result)
+bool ChunkWorker::popFinishedChunk(GeneratedChunk &result)
 {
     std::lock_guard lock(mutex);
-    if (finished.empty()) return false;
+    if (finished.empty())
+        return false;
     result = std::move(finished.front());
     finished.pop();
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Regular Mesh API
-// ─────────────────────────────────────────────────────────────────────────────
 
 void ChunkWorker::enqueueMeshRequest(MeshRequest req)
 {
@@ -82,18 +80,17 @@ void ChunkWorker::enqueueMeshRequest(MeshRequest req)
     cv.notify_one();
 }
 
-bool ChunkWorker::popFinishedMesh(MeshResult& result)
+bool ChunkWorker::popFinishedMesh(MeshResult &result)
 {
     std::lock_guard lock(mutex);
-    if (finishedMeshes.empty()) return false;
+    if (finishedMeshes.empty())
+        return false;
     result = std::move(finishedMeshes.front());
     finishedMeshes.pop();
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  LOD Mesh API
-// ─────────────────────────────────────────────────────────────────────────────
 
 void ChunkWorker::enqueueLODMeshRequest(LODMeshRequest req)
 {
@@ -104,25 +101,24 @@ void ChunkWorker::enqueueLODMeshRequest(LODMeshRequest req)
     cv.notify_one();
 }
 
-bool ChunkWorker::popFinishedLODMesh(LODMeshResult& result)
+bool ChunkWorker::popFinishedLODMesh(LODMeshResult &result)
 {
     std::lock_guard lock(mutex);
-    if (finishedLODMeshes.empty()) return false;
+    if (finishedLODMeshes.empty())
+        return false;
     result = std::move(finishedLODMeshes.front());
     finishedLODMeshes.pop();
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Queue management
-// ─────────────────────────────────────────────────────────────────────────────
 
 void ChunkWorker::clearRequests()
 {
     std::lock_guard lock(mutex);
     // Clear terrain and regular mesh queues (a new generation immediately replaces them)
-    requests      = {};
-    meshRequests  = {};
+    requests = {};
+    meshRequests = {};
     // lodMeshRequests is NOT cleared — LOD generation is managed separately
     // and does not need to be discarded every time the player moves one chunk
 }
@@ -130,13 +126,14 @@ void ChunkWorker::clearRequests()
 void ChunkWorker::flushFinished()
 {
     std::lock_guard lock(mutex);
-    uint32_t gen    = generation.load();
+    uint32_t gen = generation.load();
     uint32_t lodGen = lodGeneration.load();
 
     // Discard terrain results whose generation is outdated
     {
         std::queue<GeneratedChunk> q;
-        while (!finished.empty()) {
+        while (!finished.empty())
+        {
             if (finished.front().generation == gen)
                 q.push(std::move(finished.front()));
             finished.pop();
@@ -147,7 +144,8 @@ void ChunkWorker::flushFinished()
     // Discard outdated regular mesh results
     {
         std::queue<MeshResult> q;
-        while (!finishedMeshes.empty()) {
+        while (!finishedMeshes.empty())
+        {
             if (finishedMeshes.front().generation == gen)
                 q.push(std::move(finishedMeshes.front()));
             finishedMeshes.pop();
@@ -158,7 +156,8 @@ void ChunkWorker::flushFinished()
     // Discard outdated LOD mesh results (uses lodGen, not gen)
     {
         std::queue<LODMeshResult> q;
-        while (!finishedLODMeshes.empty()) {
+        while (!finishedLODMeshes.empty())
+        {
             if (finishedLODMeshes.front().generation == lodGen)
                 q.push(std::move(finishedLODMeshes.front()));
             finishedLODMeshes.pop();
@@ -167,7 +166,6 @@ void ChunkWorker::flushFinished()
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  Worker thread function — main loop
 //
 //  Job selection priority (when multiple queues have work):
@@ -176,7 +174,6 @@ void ChunkWorker::flushFinished()
 //    LOD mesh     : 15% — background work, not urgent
 //
 //  If only one queue has work, always pick from that queue (100%).
-// ─────────────────────────────────────────────────────────────────────────────
 
 void ChunkWorker::run()
 {
@@ -186,64 +183,78 @@ void ChunkWorker::run()
 
     while (running.load())
     {
-        ChunkRequest    req;
-        MeshRequest     meshReq;
-        LODMeshRequest  lodReq;
+        ChunkRequest req;
+        MeshRequest meshReq;
+        LODMeshRequest lodReq;
         bool hasTerrain = false;
-        bool hasMesh    = false;
-        bool hasLOD     = false;
+        bool hasMesh = false;
+        bool hasLOD = false;
 
         {
             std::unique_lock lock(mutex);
-            cv.wait(lock, [&] {
-                return !requests.empty() || !meshRequests.empty()
-                    || !lodMeshRequests.empty() || !running.load();
-            });
-            if (!running.load()) break;
+            cv.wait(lock, [&]
+                    { return !requests.empty() || !meshRequests.empty() || !lodMeshRequests.empty() || !running.load(); });
+            if (!running.load())
+                break;
 
             // Count how many queue types have work
-            int total = (!requests.empty()      ? 1 : 0)
-                      + (!meshRequests.empty()   ? 1 : 0)
-                      + (!lodMeshRequests.empty()? 1 : 0);
+            int total = (!requests.empty() ? 1 : 0) + (!meshRequests.empty() ? 1 : 0) + (!lodMeshRequests.empty() ? 1 : 0);
 
-            if (total == 1) {
+            if (total == 1)
+            {
                 // Only one type available — pick it directly
-                if (!meshRequests.empty()) {
-                    meshReq = std::move(const_cast<MeshRequest&>(meshRequests.top()));
+                if (!meshRequests.empty())
+                {
+                    meshReq = std::move(const_cast<MeshRequest &>(meshRequests.top()));
                     meshRequests.pop();
                     hasMesh = true;
-                } else if (!requests.empty()) {
+                }
+                else if (!requests.empty())
+                {
                     req = requests.top();
                     requests.pop();
                     hasTerrain = true;
-                } else {
-                    lodReq = std::move(const_cast<LODMeshRequest&>(lodMeshRequests.top()));
+                }
+                else
+                {
+                    lodReq = std::move(const_cast<LODMeshRequest &>(lodMeshRequests.top()));
                     lodMeshRequests.pop();
                     hasLOD = true;
                 }
-            } else {
+            }
+            else
+            {
                 // Multiple types available — use probability to distribute work
                 // Mesh=55%, Terrain=30%, LOD=15%
                 int roll = dis(rng);
 
-                if (!meshRequests.empty() && roll <= 55) {
-                    meshReq = std::move(const_cast<MeshRequest&>(meshRequests.top()));
+                if (!meshRequests.empty() && roll <= 55)
+                {
+                    meshReq = std::move(const_cast<MeshRequest &>(meshRequests.top()));
                     meshRequests.pop();
                     hasMesh = true;
-                } else if (!requests.empty() && roll <= 85) {
+                }
+                else if (!requests.empty() && roll <= 85)
+                {
                     req = requests.top();
                     requests.pop();
                     hasTerrain = true;
-                } else if (!lodMeshRequests.empty()) {
-                    lodReq = std::move(const_cast<LODMeshRequest&>(lodMeshRequests.top()));
+                }
+                else if (!lodMeshRequests.empty())
+                {
+                    lodReq = std::move(const_cast<LODMeshRequest &>(lodMeshRequests.top()));
                     lodMeshRequests.pop();
                     hasLOD = true;
-                } else if (!meshRequests.empty()) {
+                }
+                else if (!meshRequests.empty())
+                {
                     // Fallback: take mesh if LOD queue is empty
-                    meshReq = std::move(const_cast<MeshRequest&>(meshRequests.top()));
+                    meshReq = std::move(const_cast<MeshRequest &>(meshRequests.top()));
                     meshRequests.pop();
                     hasMesh = true;
-                } else if (!requests.empty()) {
+                }
+                else if (!requests.empty())
+                {
                     // Fallback: take terrain if everything else is empty
                     req = requests.top();
                     requests.pop();
@@ -252,11 +263,12 @@ void ChunkWorker::run()
             }
         }
 
-        // ── Process regular mesh ──────────────────────────────────────────
+        // Process regular mesh
         if (hasMesh)
         {
             // Skip if the request is already outdated
-            if (meshReq.generation != generation.load()) continue;
+            if (meshReq.generation != generation.load())
+                continue;
 
             std::vector<float> localVertices;
             GreedyMesher::build(*meshReq.mainChunk,
@@ -265,39 +277,43 @@ void ChunkWorker::run()
                                 localVertices);
 
             // Check again after the build (could have become outdated during processing)
-            if (meshReq.generation != generation.load()) continue;
+            if (meshReq.generation != generation.load())
+                continue;
 
             MeshResult result;
-            result.chunk      = meshReq.chunk;
-            result.vertices   = std::move(localVertices);
+            result.chunk = meshReq.chunk;
+            result.vertices = std::move(localVertices);
             result.generation = meshReq.generation;
 
             std::lock_guard lock(mutex);
             finishedMeshes.push(std::move(result));
         }
 
-        // ── Process terrain generation ────────────────────────────────────
+        // Process terrain generation
         if (hasTerrain)
         {
-            if (req.generation != generation.load()) continue;
+            if (req.generation != generation.load())
+                continue;
 
             auto chunk = std::make_unique<Chunk>(req.x, req.z, world);
             TerrainGenerator::generate(*chunk);
 
-            if (req.generation != generation.load()) continue;
+            if (req.generation != generation.load())
+                continue;
 
             GeneratedChunk result;
-            result.chunk      = std::move(chunk);
+            result.chunk = std::move(chunk);
             result.generation = req.generation;
 
             std::lock_guard lock(mutex);
             finished.push(std::move(result));
         }
 
-        // ── Process LOD mesh ──────────────────────────────────────────────
+        // Process LOD mesh
         if (hasLOD)
         {
-            if (lodReq.generation != lodGeneration.load()) continue;
+            if (lodReq.generation != lodGeneration.load())
+                continue;
 
             std::vector<float> lodVertices;
             LODMesher::build(
@@ -306,16 +322,18 @@ void ChunkWorker::run()
                 lodReq.tileZ,
                 lodReq.blockQuery,
                 lodReq.heightQuery,
+                lodReq.solidQuery,
                 lodVertices);
 
-            if (lodReq.generation != lodGeneration.load()) continue;
+            if (lodReq.generation != lodGeneration.load())
+                continue;
 
             LODMeshResult result;
-            result.key        = lodReq.key;
-            result.tileX      = lodReq.tileX;
-            result.tileZ      = lodReq.tileZ;
-            result.level      = lodReq.level;
-            result.vertices   = std::move(lodVertices);
+            result.key = lodReq.key;
+            result.tileX = lodReq.tileX;
+            result.tileZ = lodReq.tileZ;
+            result.level = lodReq.level;
+            result.vertices = std::move(lodVertices);
             result.generation = lodReq.generation;
 
             std::lock_guard lock(mutex);

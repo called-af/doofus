@@ -16,7 +16,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-// ─────────────────────────────────────────────────────────────────────────────
 //  World
 //
 //  Manages all full-detail chunks and low-resolution LOD tiles.
@@ -29,7 +28,6 @@
 //    - Level 5: ultra far ring (32×32 chunks per tile)
 //
 //  The distance for each ring is configured via Setting (lod1Start–lod5End).
-// ─────────────────────────────────────────────────────────────────────────────
 
 class World {
 public:
@@ -49,12 +47,12 @@ public:
     void drawLOD(const glm::vec3& cameraPos, const Frustum& frustum,
                  const glm::mat4& viewProjection, GLuint shaderID);
 
-    // ── Block operations ──────────────────────────────────────────────────
+    //  Block operations 
     bool isSolid(int x, int y, int z);
     int  getHeight(int x, int z);
     void setBlock(int x, int y, int z, BlockType type);
 
-    // ── Chunk access ──────────────────────────────────────────────────────
+    //  Chunk access 
     Chunk*                  getChunk(int chunkX, int chunkZ);
     std::shared_ptr<Chunk>  getChunkShared(int chunkX, int chunkZ);
 
@@ -62,7 +60,7 @@ public:
     long long getChunkKey(int x, int z);
 
 private:
-    // ── Regular chunks ────────────────────────────────────────────────────
+    //  Regular chunks 
     void loadChunk(int chunkX, int chunkZ, glm::vec3 cameraPos,
                    glm::vec3 cameraFront, const Frustum& frustum, bool isLoading);
 
@@ -73,7 +71,7 @@ private:
 
     void unloadFarChunks(int playerChunkX, int playerChunkZ);
 
-    // ── Hardware occlusion culling ───────────────────────────────────────
+    //  Hardware occlusion culling ─
     using OcclusionQuery = OcclusionCulling::Query;
 
     void invalidateOcclusion(const glm::vec3& cameraPos, const glm::vec3& cameraFront);
@@ -113,7 +111,7 @@ private:
 
     std::unique_ptr<ChunkWorker> worker;
 
-    // ── Shader uniform cache (avoid glGetUniformLocation every frame) ─────
+    //  Shader uniform cache (avoid glGetUniformLocation every frame) ─
     GLint uIsLODLoc       = -1;
     GLint uTimeLoc        = -1;
     GLint uSpawnTimeLoc   = -1;
@@ -122,7 +120,7 @@ private:
     // Update the uniform location cache if the shader has changed
     void cacheUniformLocations(GLuint shaderID);
 
-    // ── LOD system ────────────────────────────────────────────────────────
+    //  LOD system 
     // Unique tile key: encodes tileX, tileZ, and level into a single long long
     // Bit layout: [level 4bit][tileZ 30bit][tileX 30bit]
     static long long getLODKey(int tileX, int tileZ, int level);
