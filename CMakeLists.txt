@@ -81,7 +81,6 @@ add_executable(doofus
     src/world/TerrainGenerator.cpp
     src/world/mesher/GreedyMesher.cpp
     src/world/mesher/LODMesher.cpp
-    src/world/LODChunk.cpp
     src/world/World.cpp
     src/world/ChunkWorker.cpp
     src/world/biome/BiomeManager.cpp

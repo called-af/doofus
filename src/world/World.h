@@ -3,7 +3,6 @@
 #include "../renderer/Frustum.h"
 #include "Chunk.h"
 #include "ChunkWorker.h"
-#include "LODChunk.h"
 #include "../renderer/opengl/Shader.h"
 #include "../renderer/OcclusionCulling.h"
 
@@ -15,19 +14,6 @@
 #include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
-
-//  World
-//
-//  Manages all full-detail chunks and low-resolution LOD tiles.
-//
-//  5-Level LOD System:
-//    - Level 1: nearest ring  (2×2 chunks per tile)
-//    - Level 2: mid ring      (4×4 chunks per tile)
-//    - Level 3: far ring      (8×8 chunks per tile)
-//    - Level 4: very far ring (16×16 chunks per tile)
-//    - Level 5: ultra far ring (32×32 chunks per tile)
-//
-//  The distance for each ring is configured via Setting (lod1Start–lod5End).
 
 class World {
 public:
@@ -42,6 +28,10 @@ public:
     void draw(const glm::vec3& cameraPos, const glm::vec3& cameraFront,
               const Frustum& frustum, const glm::mat4& viewProjection,
               GLuint shaderID);
+
+    // Draw chunks for the shadow map pass without hash table lookups
+    void drawShadowChunks(const Frustum &lightFrustum, GLint uSpawnTimeLoc,
+                          int playerChunkX, int playerChunkZ, int maxDistance);
 
     // Draw all LOD tiles — called after draw() in Scene, with uIsLOD=1
     void drawLOD(const glm::vec3& cameraPos, const Frustum& frustum,
@@ -121,14 +111,25 @@ private:
     void cacheUniformLocations(GLuint shaderID);
 
     //  LOD system 
+    struct LODTile {
+        int tileX = 0;
+        int tileZ = 0;
+        int level = 1;
+        std::unique_ptr<Mesh> mesh;
+        bool empty = false;
+        float spawnTime = -1.0f;
+        glm::vec3 minBounds{0.0f};
+        glm::vec3 maxBounds{0.0f};
+    };
+
     // Unique tile key: encodes tileX, tileZ, and level into a single long long
     // Bit layout: [level 4bit][tileZ 30bit][tileX 30bit]
     static long long getLODKey(int tileX, int tileZ, int level);
 
     // Convert chunk coordinate to tile coordinate for a given level.
-    // A level-L tile covers (2^L) chunks per side.
+    // A level-L tile covers (2^(L-1)) chunks per side.
     static int chunkToTile(int chunkCoord, int level) {
-        int cov = (1 << level);
+        int cov = (1 << (level - 1));
         return (int)std::floor((float)chunkCoord / cov);
     }
 
@@ -137,13 +138,19 @@ private:
     bool inLODRing(int tileX, int tileZ, int level,
                    int playerChunkX, int playerChunkZ) const;
 
+    // Calculate LOD priority based on camera distance, frustum, and crosshair direction
+    int calculateLODPriority(int tileX, int tileZ, int level,
+                             glm::vec3 cameraPos, glm::vec3 cameraFront,
+                             const Frustum &frustum, bool isLoading);
+
     // Update the LOD tile registry every frame
-    void updateLOD(int playerChunkX, int playerChunkZ, const Frustum& frustum,
+    void updateLOD(int playerChunkX, int playerChunkZ, glm::vec3 cameraPos,
+                   glm::vec3 cameraFront, const Frustum& frustum,
                    bool isLoading, bool refreshRequests);
 
-    // Submit a LOD mesh build request to the worker
-    void requestLODTile(int tileX, int tileZ, int level);
+    // Submit a LOD mesh build request to the worker with directional priority
+    void requestLODTile(int tileX, int tileZ, int level, int priority);
 
-    std::unordered_map<long long, std::shared_ptr<LODChunk>>   lodChunks;
-    std::unordered_map<long long, std::array<int, 3>>          queuedLODTiles; // tiles currently being processed by the worker
+    std::unordered_map<long long, std::array<int, 3>> queuedLODTiles; // tiles currently being processed by the worker
+    std::unordered_map<long long, LODTile>             lodTiles;       // completed LOD tiles loaded in memory
 };

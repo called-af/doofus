@@ -334,17 +334,86 @@ void TerrainGenerator::generate(Chunk &chunk)
 
 //  STANDALONE SAMPLERS (LOD & Physics consistency across all 3 tiers)
 
-int TerrainGenerator::sampleHeightAt(int worldX, int worldZ)
+int TerrainGenerator::sampleHellFloorAt(int worldX, int worldZ)
 {
-  return sampleLODHeightAt(worldX, worldZ, 1);
+  const TerrainSample terrain = TerrainSampler::sample(worldX, worldZ);
+  const int floorH = computeBaseHeight(terrain);
+  const float canyonRatio = getHellCanyonDepthRatio(static_cast<float>(worldX), static_cast<float>(worldZ));
+  const int floorY = Setting::hellCanyonFloorY;
+
+  int baseFloorY = floorH;
+  if (canyonRatio > 0.0f)
+  {
+    baseFloorY = std::max(floorY, static_cast<int>(floorH - canyonRatio * (floorH - floorY)));
+  }
+
+  if (canyonRatio > 0.35f)
+  {
+    const float spikeNoise = RidgeNoise::generate(
+        worldX * Setting::hellSpikeNoiseScale, worldZ * Setting::hellSpikeNoiseScale, 2, 0.5f, 0.05f, Setting::seed + 666);
+    if (spikeNoise > 0.55f)
+    {
+      int spikeHeight = baseFloorY + static_cast<int>((spikeNoise - 0.55f) * 45.0f);
+      spikeHeight = std::min(spikeHeight, Setting::hellCanyonRimY - 4);
+      if (spikeHeight > baseFloorY)
+        baseFloorY = spikeHeight;
+    }
+  }
+
+  return baseFloorY;
 }
 
-int TerrainGenerator::sampleLODHeightAt(int worldX, int worldZ, int level)
+int TerrainGenerator::sampleContinentHeightAt(int worldX, int worldZ)
 {
-  // 1. Tier 3 (Heaven Archipelago Cluster) check
+  const TerrainSample terrain = TerrainSampler::sample(worldX, worldZ);
+  const float raw = (terrain.plateau - Setting::plateauThreshold) / (1.0f - Setting::plateauThreshold);
+  const float pDepth = std::clamp(raw, 0.0f, 1.0f);
+  const float smoothDepth = pDepth * pDepth * (3.0f - 2.0f * pDepth);
+
+  if (smoothDepth < Setting::islandEdgeCutoff)
+    return 0;
+
+  const float variation = (FBMNoise::generate((worldX + 54321) * 0.0018f,
+                                              (worldZ + 12345) * 0.0018f,
+                                              3, 0.5f, 0.5f, Setting::seed + 225) + 1.0f) * 0.5f;
+  const int flatHeight = std::clamp(100 + static_cast<int>(variation * 75.0f), 100, 220);
+  int height = flatHeight;
+
+  if (smoothDepth > 0.35f)
+  {
+    const float blend = (smoothDepth - 0.35f) / 0.65f;
+    const float smoothBlend = blend * blend * (3.0f - 2.0f * blend);
+    const float peakBlend = std::max(0.0f, (blend - Setting::mountainCoreThreshold) / (1.0f - Setting::mountainCoreThreshold));
+    height += static_cast<int>(smoothBlend * 40.0f) + static_cast<int>(peakBlend * std::sqrt(std::max(0.0f, terrain.peaks)) * Setting::peakHeight);
+  }
+  else
+  {
+    height += static_cast<int>(terrain.erosion * 0.5f);
+  }
+
+  return std::clamp(applyErosion(height, terrain), flatHeight - 4, 250);
+}
+
+int TerrainGenerator::sampleContinentBodyBottomAt(int worldX, int worldZ)
+{
+  const TerrainSample terrain = TerrainSampler::sample(worldX, worldZ);
+  const float raw = (terrain.plateau - Setting::plateauThreshold) / (1.0f - Setting::plateauThreshold);
+  const float pDepth = std::clamp(raw, 0.0f, 1.0f);
+  const float smoothDepth = pDepth * pDepth * (3.0f - 2.0f * pDepth);
+
+  const float variation = (FBMNoise::generate((worldX + 54321) * 0.0018f,
+                                              (worldZ + 12345) * 0.0018f,
+                                              3, 0.5f, 0.5f, Setting::seed + 225) + 1.0f) * 0.5f;
+  const int flatPlateauH = std::clamp(100 + static_cast<int>(variation * 75.0f), 100, 220);
+  int baseFloorY = sampleHellFloorAt(worldX, worldZ);
+  return std::max(baseFloorY + 12, estimateBodyBottom(flatPlateauH, smoothDepth));
+}
+
+int TerrainGenerator::sampleHeightAt(int worldX, int worldZ)
+{
+  // Tier 3: Heaven floating islands
   float hDist = 0.0f;
   FeatureSeed hSeed = findNearestHeavenSeed(static_cast<float>(worldX), static_cast<float>(worldZ), hDist);
-
   if (hSeed.exists)
   {
     float maxHeavenTop = -1.0f;
@@ -353,76 +422,19 @@ int TerrainGenerator::sampleLODHeightAt(int worldX, int worldZ, int level)
     {
       IslandSlice slice = evaluateIslandSlice(static_cast<float>(worldX), static_cast<float>(worldZ), hSeed, i);
       if (slice.valid && slice.topY > maxHeavenTop)
-      {
         maxHeavenTop = slice.topY;
-      }
     }
-
     if (maxHeavenTop > 0.0f)
-    {
       return std::clamp(static_cast<int>(maxHeavenTop), 280, Chunk::HEIGHT - 1);
-    }
   }
 
-  // 2. Tier 2 (Normal) check
-  const TerrainSample terrain = TerrainSampler::sample(worldX, worldZ);
-  const int floorH = computeBaseHeight(terrain);
+  // Tier 2: Normal terrain / Continent
+  int continentH = sampleContinentHeightAt(worldX, worldZ);
+  if (continentH > 0)
+    return continentH;
 
-  const float raw = (terrain.plateau - Setting::plateauThreshold) / (1.0f - Setting::plateauThreshold);
-  const float pDepth = std::clamp(raw, 0.0f, 1.0f);
-  const float smoothDepth = pDepth * pDepth * (3.0f - 2.0f * pDepth);
-
-  if (smoothDepth >= Setting::islandEdgeCutoff)
-  {
-    // Fast path for far LOD levels (3, 4, 5): skip heavy FBM noise micro-variations
-    if (level >= 3)
-    {
-      return std::clamp(130 + static_cast<int>(smoothDepth * 70.0f), 100, 250);
-    }
-
-    const float variation = (FBMNoise::generate((worldX + 54321) * 0.0018f,
-                                                (worldZ + 12345) * 0.0018f,
-                                                3, 0.5f, 0.5f, Setting::seed + 225) +
-                             1.0f) *
-                            0.5f;
-    const int flatHeight = std::clamp(100 + static_cast<int>(variation * 75.0f),
-                                      100, 220);
-    int height = flatHeight;
-    if (smoothDepth > 0.35f)
-    {
-      const float blend = (smoothDepth - 0.35f) / 0.65f;
-      const float smoothBlend = blend * blend * (3.0f - 2.0f * blend);
-      const float peakBlend = std::max(0.0f, (blend - Setting::mountainCoreThreshold) / (1.0f - Setting::mountainCoreThreshold));
-      height += static_cast<int>(smoothBlend * 40.0f) + static_cast<int>(peakBlend * std::sqrt(std::max(0.0f, terrain.peaks)) * Setting::peakHeight);
-    }
-    else
-    {
-      height += static_cast<int>(terrain.erosion * 0.5f);
-    }
-    return std::clamp(applyErosion(height, terrain), flatHeight - 4, 250);
-  }
-
-  // 3. Tier 1 (Hell Canyon) check
-  float canyonRatio = getHellCanyonDepthRatio(static_cast<float>(worldX), static_cast<float>(worldZ));
-  if (canyonRatio > 0.0f)
-  {
-    return std::max(Setting::hellCanyonFloorY, static_cast<int>(floorH - canyonRatio * (floorH - Setting::hellCanyonFloorY)));
-  }
-
-  return floorH;
-}
-
-BlockType TerrainGenerator::sampleLODBlockAt(int worldX, int worldZ, int surfaceHeight)
-{
-  if (surfaceHeight >= 270)
-    return BlockType::Grass;
-  if (surfaceHeight <= Setting::hellCanyonRimY)
-    return BlockType::Basalt;
-  if (surfaceHeight > 160)
-    return BlockType::Stone;
-  if (surfaceHeight < 90)
-    return BlockType::Sand;
-  return BlockType::Grass;
+  // Tier 1: Hell Floor & Canyon
+  return sampleHellFloorAt(worldX, worldZ);
 }
 
 BlockType TerrainGenerator::sampleBlockAt(int worldX, int worldZ, int surfaceHeight)
@@ -480,11 +492,7 @@ bool TerrainGenerator::isSolidAt(int worldX, int worldZ, int y)
     const float pClamped = std::clamp(raw, 0.0f, 1.0f);
     const float pDepth = pClamped * pClamped * (3.0f - 2.0f * pClamped);
 
-    const float canyonRatio = getHellCanyonDepthRatio(static_cast<float>(worldX), static_cast<float>(worldZ));
-    int baseFloorY = floorH;
-    if (canyonRatio > 0.0f)
-        baseFloorY = std::max(Setting::hellCanyonFloorY,
-                              static_cast<int>(floorH - canyonRatio * (floorH - Setting::hellCanyonFloorY)));
+    int baseFloorY = sampleHellFloorAt(worldX, worldZ);
 
     // Hell floor / normal ground column, all the way down
     if (y <= baseFloorY)
@@ -495,13 +503,7 @@ bool TerrainGenerator::isSolidAt(int worldX, int worldZ, int y)
         return false;
 
     // Tier 2 — plateau island body + hourglass stem
-    const float n1 = FBMNoise::generate((worldX + 54321) * 0.0018f,
-                                        (worldZ + 12345) * 0.0018f, 3, 0.5f,
-                                        0.5f, Setting::seed + 225);
-    const float hVariation = (n1 + 1.0f) * 0.5f;
-    const int flatPlateauH = std::clamp(100 + static_cast<int>(hVariation * 75.0f), 100, 220);
-
-    const int bodyBottom = std::max(baseFloorY + 12, estimateBodyBottom(flatPlateauH, pDepth));
+    const int bodyBottom = sampleContinentBodyBottomAt(worldX, worldZ);
 
     // Solid plateau body (this function doesn't need the exact top — the
     // caller already knows the surface height and won't query above it)

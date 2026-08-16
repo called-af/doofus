@@ -31,19 +31,10 @@ World::~World()
         glDeleteVertexArrays(1, &occlusionVAO);
 }
 
-//  Chunk & LOD tile keys
-
 // Encode chunk coordinates into a single long long (unique key for unordered_map)
 long long World::getChunkKey(int x, int z)
 {
     return ((long long)(unsigned int)x << 32) | (unsigned int)z;
-}
-
-// Encode a LOD tile into a single long long
-// Bit layout: [level 4bit | tileZ 30bit | tileX 30bit]
-long long World::getLODKey(int tileX, int tileZ, int level)
-{
-    return ((long long)(level & 0xF) << 60) | (((long long)(unsigned int)tileZ & 0x0FFFFFFF) << 30) | ((long long)(unsigned int)tileX & 0x0FFFFFFF);
 }
 
 //  Chunk access
@@ -116,266 +107,9 @@ void World::cacheUniformLocations(GLuint shaderID)
     if (shaderID == cachedShaderID)
         return; // already cached for this shader
     cachedShaderID = shaderID;
-    uIsLODLoc = glGetUniformLocation(shaderID, "uIsLOD");
     uTimeLoc = glGetUniformLocation(shaderID, "uTime");
+    uIsLODLoc = glGetUniformLocation(shaderID, "uIsLOD");
     uSpawnTimeLoc = glGetUniformLocation(shaderID, "uLodSpawnTime");
-}
-
-//  inLODRing — check whether a tile falls within the correct LOD ring for its level
-//
-//  A level-L tile covers (2^L × 2^L) chunks. tileX/tileZ are tile coordinates
-//  (not chunk coordinates). A tile is considered valid when its radial
-//  distance from the player falls within [lodLStart, lodLEnd).
-
-bool World::inLODRing(int tileX, int tileZ, int level,
-                      int playerChunkX, int playerChunkZ) const
-{
-    const int cov = (1 << level); // chunks per tile side
-
-    // Tile bounds in chunk coordinates
-    const float minX = (float)(tileX * cov);
-    const float maxX = (float)((tileX + 1) * cov);
-    const float minZ = (float)(tileZ * cov);
-    const float maxZ = (float)((tileZ + 1) * cov);
-
-    // Find closest point on the tile to the player chunk
-    const float pX = (float)playerChunkX;
-    const float pZ = (float)playerChunkZ;
-    const float closestX = std::max(minX, std::min(pX, maxX));
-    const float closestZ = std::max(minZ, std::min(pZ, maxZ));
-    const float dxClosest = closestX - pX;
-    const float dzClosest = closestZ - pZ;
-    const float minDistSquared = dxClosest * dxClosest + dzClosest * dzClosest;
-
-    // Find furthest point on the tile to the player chunk
-    const float furthestX = (std::abs(minX - pX) > std::abs(maxX - pX)) ? minX : maxX;
-    const float furthestZ = (std::abs(minZ - pZ) > std::abs(maxZ - pZ)) ? minZ : maxZ;
-    const float dxFurthest = furthestX - pX;
-    const float dzFurthest = furthestZ - pZ;
-    const float maxDistSquared = dxFurthest * dxFurthest + dzFurthest * dzFurthest;
-
-    int startDist, endDist;
-    switch (level)
-    {
-    case 1:
-        startDist = Setting::lod1Start;
-        endDist = Setting::lod1End;
-        break;
-    case 2:
-        startDist = Setting::lod2Start;
-        endDist = Setting::lod2End;
-        break;
-    case 3:
-        startDist = Setting::lod3Start;
-        endDist = Setting::lod3End;
-        break;
-    case 4:
-        startDist = Setting::lod4Start;
-        endDist = Setting::lod4End;
-        break;
-    case 5:
-        startDist = Setting::lod5Start;
-        endDist = Setting::lod5End;
-        break;
-    default:
-        return false;
-    }
-
-    const float startDistSq = (float)(startDist * startDist);
-    const float endDistSq = (float)(endDist * endDist);
-
-    return maxDistSquared >= startDistSq && minDistSquared < endDistSq;
-}
-
-//  requestLODTile — submit a LOD mesh build request to the worker thread
-
-void World::requestLODTile(int tileX, int tileZ, int level)
-{
-    long long key = getLODKey(tileX, tileZ, level);
-
-    // Mesh already exists
-    if (lodChunks.count(key))
-        return;
-    // Already queued
-    if (queuedLODTiles.count(key))
-        return;
-
-    queuedLODTiles[key] = {tileX, tileZ, level};
-
-    LODMeshRequest req;
-    req.tileX = tileX;
-    req.tileZ = tileZ;
-    req.level = level;
-    req.key = key;
-    req.generation = worker->lodGeneration.load();
-
-    // Never make a far ring depend on the full-detail cache: LOD1 begins
-    // outside renderDistance, so waiting for those chunks left intermittent
-    // holes.  The deterministic sampler also keeps every LOD boundary stable.
-    req.blockQuery = [](int wx, int wy, int wz) -> BlockType
-    {
-        return TerrainGenerator::sampleBlockAt(wx, wz, wy);
-    };
-    req.heightQuery = [level](int wx, int wz) -> int
-    {
-        return TerrainGenerator::sampleLODHeightAt(wx, wz, level);
-    };
-    req.solidQuery = [](int wx, int wy, int wz) -> bool 
-    {
-        return TerrainGenerator::isSolidAt(wx, wz, wy);
-    };
-
-    worker->enqueueLODMeshRequest(std::move(req));
-}
-
-//  updateLOD — manage the LOD tile registry every frame (5 levels)
-//
-//  Ring logic mirrors CDLOD QuadTree::selectNodes:
-//    Level 1: ring from lod1Start to lod1End (in chunk units)
-//    Level 2: ring from lod2Start to lod2End
-//    Level 3: ring from lod3Start to lod3End
-//    Level 4: ring from lod4Start to lod4End
-//    Level 5: ring from lod5Start to lod5End
-//
-//  Each frame:
-//    1. Remove tiles that have moved outside their ring
-//    2. Periodically request tiles that should exist but do not yet
-//    3. Receive finished meshes from the worker and upload them to the GPU
-//    4. Clean up queued tiles that have moved outside their ring
-
-void World::updateLOD(int playerChunkX, int playerChunkZ, const Frustum &frustum,
-                      bool isLoading, bool refreshRequests)
-{
-    //  Step 1: remove tiles that have left their ring 
-    for (auto it = lodChunks.begin(); it != lodChunks.end();)
-    {
-        auto &lc = it->second;
-        if (!inLODRing(lc->tileX, lc->tileZ, lc->level, playerChunkX, playerChunkZ))
-        {
-            queuedLODTiles.erase(it->first);
-            if (auto queryIt = lodOcclusionQueries.find(it->first);
-                queryIt != lodOcclusionQueries.end())
-            {
-                OcclusionCulling::destroy(queryIt->second);
-                lodOcclusionQueries.erase(queryIt);
-            }
-            it = lodChunks.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
-    }
-
-    //  Step 2: request missing tiles on a fixed cadence 
-    // The registry itself is maintained every frame, but scanning all five
-    // rings is amortized to keep gameplay frame times stable.
-    if (refreshRequests)
-    {
-        for (int level = 1; level <= 5; level++)
-        {
-            int startDist, endDist;
-            switch (level)
-            {
-            case 1:
-                startDist = Setting::lod1Start;
-                endDist = Setting::lod1End;
-                break;
-            case 2:
-                startDist = Setting::lod2Start;
-                endDist = Setting::lod2End;
-                break;
-            case 3:
-                startDist = Setting::lod3Start;
-                endDist = Setting::lod3End;
-                break;
-            case 4:
-                startDist = Setting::lod4Start;
-                endDist = Setting::lod4End;
-                break;
-            case 5:
-                startDist = Setting::lod5Start;
-                endDist = Setting::lod5End;
-                break;
-            default:
-                continue;
-            }
-
-            const int cov = (1 << level);              // chunks per tile side
-            const int tileRange = (endDist / cov) + 2; // slight overestimate; inLODRing will filter
-            const int playerTileX = (int)std::floor((float)playerChunkX / cov);
-            const int playerTileZ = (int)std::floor((float)playerChunkZ / cov);
-
-            for (int dtx = -tileRange; dtx <= tileRange; dtx++)
-            {
-                for (int dtz = -tileRange; dtz <= tileRange; dtz++)
-                {
-                    const int tx = playerTileX + dtx;
-                    const int tz = playerTileZ + dtz;
-
-                    if (!inLODRing(tx, tz, level, playerChunkX, playerChunkZ))
-                        continue;
-
-                    const float tileSize = (float)(cov * Chunk::SIZE);
-                    const glm::vec3 minBounds(tx * tileSize, 0.0f, tz * tileSize);
-                    const glm::vec3 maxBounds = minBounds + glm::vec3(
-                                                                tileSize, (float)Chunk::HEIGHT, tileSize);
-                    // Loading used to enqueue the complete 1200-chunk circle.
-                    // Those thousands of unseen LOD jobs kept CPU cores busy
-                    // after gameplay began and caused movement hitches.
-                    if (!frustum.isBoxVisible(minBounds, maxBounds))
-                        continue;
-
-                    requestLODTile(tx, tz, level);
-                }
-            }
-        }
-    }
-
-    //  Step 3: receive results from the worker, upload to GPU 
-    LODMeshResult result;
-    while (worker->popFinishedLODMesh(result))
-    {
-        // Discard stale results
-        if (result.generation != worker->lodGeneration.load())
-        {
-            queuedLODTiles.erase(result.key);
-            continue;
-        }
-
-        queuedLODTiles.erase(result.key);
-
-        // The tile may have left its ring while its worker job was running.
-        // Do not resurrect it; this is the lifecycle generation guard.
-        if (!inLODRing(result.tileX, result.tileZ, result.level,
-                       playerChunkX, playerChunkZ))
-            continue;
-
-        // Create or update the LODChunk
-        auto it = lodChunks.find(result.key);
-        if (it == lodChunks.end())
-        {
-            auto lc = std::make_shared<LODChunk>(result.tileX, result.tileZ, result.level);
-            lc->pendingVertices = std::move(result.vertices);
-            lc->uploadMesh();
-            lodChunks[result.key] = std::move(lc);
-        }
-        else
-        {
-            it->second->pendingVertices = std::move(result.vertices);
-            it->second->uploadMesh();
-        }
-    }
-
-    //  Step 4: clean up queued tiles that have left their ring 
-    for (auto it = queuedLODTiles.begin(); it != queuedLODTiles.end();)
-    {
-        auto &[tx, tz, lvl] = it->second;
-        if (!inLODRing(tx, tz, lvl, playerChunkX, playerChunkZ))
-            it = queuedLODTiles.erase(it);
-        else
-            ++it;
-    }
 }
 
 //  update — called every frame from the main thread
@@ -410,21 +144,6 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
 
         lastChunkX = playerChunkX;
         lastChunkZ = playerChunkZ;
-        // NOTE: LOD state (lodChunks / queuedLODTiles) is intentionally left intact.
-        // updateLOD() already removes tiles that leave their ring every frame —
-        // that is the correct granularity. Do not wipe the LOD cache here.
-    }
-
-    //  Track tile movement without invalidating the complete LOD cache 
-    // Tiles are immutable deterministic samples.  updateLOD removes only a
-    // tile that fully leaves its own ring, so crossing a small chunk boundary
-    // does not throw away hundreds of useful worker results.
-    int lodTileX = (int)std::floor((float)playerChunkX / 2);
-    int lodTileZ = (int)std::floor((float)playerChunkZ / 2);
-    if (lodTileX != lastLodTileX || lodTileZ != lastLodTileZ)
-    {
-        lastLodTileX = lodTileX;
-        lastLodTileZ = lodTileZ;
     }
 
     //  Request terrain generation within render distance ─
@@ -529,10 +248,10 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
         if (!chunk->dirty)
             continue;
 
-        // Skip chunks that are outside render distance
-        int dx = std::abs(chunk->chunkX - playerChunkX);
-        int dz = std::abs(chunk->chunkZ - playerChunkZ);
-        if (dx > rd || dz > rd)
+        // Skip chunks that are outside render distance (circular check)
+        int dx = chunk->chunkX - playerChunkX;
+        int dz = chunk->chunkZ - playerChunkZ;
+        if (dx * dx + dz * dz > rd * rd)
         {
             chunk->dirty = false;
             continue;
@@ -603,13 +322,21 @@ void World::update(glm::vec3 cameraPos, glm::vec3 cameraFront,
         }
     }
 
-    //  Update LOD — active during initial world loading as well 
-    // This requests rear and side rings before the player can move.
-    constexpr unsigned int lodRequestRefreshFrames = 8;
-    const bool refreshLODRequests = playerChunkChanged || (isLoading && receivedChunk) || worldUpdateFrame - lastLODRequestRefreshFrame >= lodRequestRefreshFrames;
-    if (refreshLODRequests)
-        lastLODRequestRefreshFrame = worldUpdateFrame;
-    updateLOD(playerChunkX, playerChunkZ, frustum, isLoading, refreshLODRequests);
+    //  LOD system update ─
+    const int LOD_MOVE_THRESHOLD = 8;
+    if (std::abs(playerChunkX - lastLodTileX) >= LOD_MOVE_THRESHOLD ||
+        std::abs(playerChunkZ - lastLodTileZ) >= LOD_MOVE_THRESHOLD)
+    {
+        worker->nextLODGeneration();
+        worker->flushFinished();
+        queuedLODTiles.clear();
+        lastLodTileX = playerChunkX;
+        lastLodTileZ = playerChunkZ;
+    }
+
+    constexpr unsigned int lodRequestRefreshFrames = 4;
+    const bool refreshLODRequests = playerChunkChanged || worldUpdateFrame % lodRequestRefreshFrames == 0;
+    updateLOD(playerChunkX, playerChunkZ, cameraPos, cameraFront, frustum, isLoading, refreshLODRequests);
 }
 
 //  draw — render full-detail regular chunks
@@ -626,10 +353,6 @@ void World::invalidateOcclusion(const glm::vec3 &cameraPos,
         return;
 
     for (auto &[key, query] : occlusionQueries)
-    {
-        OcclusionCulling::invalidate(query);
-    }
-    for (auto &[key, query] : lodOcclusionQueries)
     {
         OcclusionCulling::invalidate(query);
     }
@@ -833,7 +556,6 @@ void World::draw(const glm::vec3 &cameraPos, const glm::vec3 &cameraFront,
     // Cache uniform locations once per shader (avoids glGetUniformLocation every frame)
     cacheUniformLocations(shaderID);
 
-    glUniform1i(uIsLODLoc, 0);
     glUniform1f(uTimeLoc, (float)(SDL_GetTicks() / 1000.0));
 
     ++renderFrame;
@@ -842,6 +564,7 @@ void World::draw(const glm::vec3 &cameraPos, const glm::vec3 &cameraFront,
     const int playerChunkX = (int)std::floor(cameraPos.x / Chunk::SIZE);
     const int playerChunkZ = (int)std::floor(cameraPos.z / Chunk::SIZE);
     const int rd = Setting::renderDistance;
+    const int rdSq = rd * rd;
     struct DistanceSortedChunk
     {
         float distanceSq;
@@ -853,9 +576,9 @@ void World::draw(const glm::vec3 &cameraPos, const glm::vec3 &cameraFront,
 
     for (auto &[key, chunk] : chunks)
     {
-        const int dx = std::abs(chunk->chunkX - playerChunkX);
-        const int dz = std::abs(chunk->chunkZ - playerChunkZ);
-        if (dx > rd || dz > rd || chunk->empty || !chunk->mesh)
+        const int dx = chunk->chunkX - playerChunkX;
+        const int dz = chunk->chunkZ - playerChunkZ;
+        if (dx * dx + dz * dz > rdSq || chunk->empty || !chunk->mesh)
             continue;
         if (!frustum.isBoxVisible(chunk->getMinBounds(), chunk->getMaxBounds()))
             continue;
@@ -881,10 +604,9 @@ void World::draw(const glm::vec3 &cameraPos, const glm::vec3 &cameraFront,
     {
         Chunk *chunk = item.chunk;
         long long key = item.key;
-        const int chunkDistance = std::max(
-            std::abs(chunk->chunkX - playerChunkX),
-            std::abs(chunk->chunkZ - playerChunkZ));
-        if (chunkDistance < minimumOcclusionDistance)
+        const int dx = chunk->chunkX - playerChunkX;
+        const int dz = chunk->chunkZ - playerChunkZ;
+        if (dx * dx + dz * dz < minimumOcclusionDistance * minimumOcclusionDistance)
         {
             glUniform1f(uSpawnTimeLoc, chunk->spawnTime);
             chunk->draw();
@@ -916,82 +638,26 @@ void World::draw(const glm::vec3 &cameraPos, const glm::vec3 &cameraFront,
     }
 }
 
-//  drawLOD — render low-resolution LOD tiles (far-range coverage)
-
-void World::drawLOD(const glm::vec3 &cameraPos, const Frustum &frustum,
-                    const glm::mat4 &viewProjection, GLuint shaderID)
+void World::drawShadowChunks(const Frustum &lightFrustum, GLint uSpawnTimeLoc,
+                             int playerChunkX, int playerChunkZ, int maxDistance)
 {
-    // Cache uniform locations once per shader
-    cacheUniformLocations(shaderID);
-
-    // uIsLOD=1 tells the shader to skip shadow lookups
-    glUniform1i(uIsLODLoc, 1);
-    glUniform1f(uTimeLoc, (float)(SDL_GetTicks() / 1000.0));
-
-    struct DistanceSortedTile
+    const int maxDistSq = maxDistance * maxDistance;
+    for (auto &[key, chunk] : chunks)
     {
-        float distanceSq;
-        long long key;
-        LODChunk *tile;
-    };
-    std::vector<DistanceSortedTile> visibleTiles;
-    visibleTiles.reserve(lodChunks.size());
-
-    for (auto &[key, lc] : lodChunks)
-    {
-        if (lc->empty)
-            continue;
-        if (!lc->mesh)
-            continue;
-        if (!frustum.isBoxVisible(lc->minBounds, lc->maxBounds))
+        if (!chunk || chunk->empty || !chunk->mesh)
             continue;
 
-        const glm::vec3 center = (lc->minBounds + lc->maxBounds) * 0.5f;
-        const glm::vec3 delta = center - cameraPos;
-        const float distSq = glm::dot(delta, delta);
-        visibleTiles.push_back({distSq, key, lc.get()});
+        const int dx = chunk->chunkX - playerChunkX;
+        const int dz = chunk->chunkZ - playerChunkZ;
+        if (dx * dx + dz * dz > maxDistSq)
+            continue;
+
+        if (!lightFrustum.isBoxVisible(chunk->getMinBounds(), chunk->getMaxBounds()))
+            continue;
+
+        glUniform1f(uSpawnTimeLoc, chunk->spawnTime);
+        chunk->mesh->draw();
     }
-
-    // Process near tiles first so they populate depth before the conservative
-    // occlusion proxy tests for farther LOD levels.
-    std::sort(visibleTiles.begin(), visibleTiles.end(),
-              [](const DistanceSortedTile &a, const DistanceSortedTile &b)
-              {
-                  return a.distanceSq < b.distanceSq;
-              });
-
-    int issuedQueries = 0;
-    constexpr int maximumQueriesPerFrame = 32;
-
-    for (const auto &item : visibleTiles)
-    {
-        LODChunk *tile = item.tile;
-        long long key = item.key;
-        OcclusionQuery &query = lodOcclusionQueries[key];
-        if (!shouldDrawChunk(query) && !isOcclusionTestDue(query))
-            continue;
-
-        if (issuedQueries < maximumQueriesPerFrame && isOcclusionTestDue(query))
-        {
-            glm::vec3 minBounds = tile->minBounds;
-            // LOD tiles can rise by up to eighteen blocks during their spawn animation.
-            minBounds.y -= 18.0f;
-            issueOcclusionQuery(query, minBounds, tile->maxBounds,
-                                viewProjection, shaderID);
-            ++issuedQueries;
-        }
-
-        if (!query.visible)
-            continue;
-
-        // Send spawn time for the tile fade-in animation
-        glUniform1f(uSpawnTimeLoc, tile->spawnTime);
-        tile->draw();
-    }
-
-    // Reset to a clean state after LOD rendering is complete
-    glUniform1i(uIsLODLoc, 0);
-    glUniform1f(uSpawnTimeLoc, -1.0f);
 }
 
 //  Block operations
@@ -1063,14 +729,15 @@ void World::setBlock(int x, int y, int z, BlockType type)
 void World::unloadFarChunks(int centerChunkX, int centerChunkZ)
 {
     const int UNLOAD_DISTANCE = Setting::renderDistance + 2;
+    const int unloadDistSq = UNLOAD_DISTANCE * UNLOAD_DISTANCE;
 
     for (auto it = chunks.begin(); it != chunks.end();)
     {
         Chunk *chunk = it->second.get();
-        int dx = std::abs(chunk->chunkX - centerChunkX);
-        int dz = std::abs(chunk->chunkZ - centerChunkZ);
+        int dx = chunk->chunkX - centerChunkX;
+        int dz = chunk->chunkZ - centerChunkZ;
 
-        if (dx > UNLOAD_DISTANCE || dz > UNLOAD_DISTANCE)
+        if (dx * dx + dz * dz > unloadDistSq)
         {
             const long long key = it->first;
             it = chunks.erase(it);
@@ -1138,4 +805,249 @@ int World::calculatePriority(int chunkX, int chunkZ, glm::vec3 cameraPos,
     }
 
     return priority;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LOD System Implementation
+// ─────────────────────────────────────────────────────────────────────────────
+
+long long World::getLODKey(int tileX, int tileZ, int level)
+{
+    uint64_t ux = (uint64_t)(uint32_t)tileX & 0x3FFFFFFFULL;
+    uint64_t uz = (uint64_t)(uint32_t)tileZ & 0x3FFFFFFFULL;
+    uint64_t ul = (uint64_t)(uint32_t)level & 0xFULL;
+    return (long long)((ul << 60) | (uz << 30) | ux);
+}
+
+bool World::inLODRing(int tileX, int tileZ, int level,
+                      int playerChunkX, int playerChunkZ) const
+{
+    if (level > Setting::maxLODLevel || Setting::maxLODLevel <= 0)
+        return false;
+
+    const int cov = 1 << (level - 1);
+
+    const float centerChunkX = (tileX + 0.5f) * (float)cov;
+    const float centerChunkZ = (tileZ + 0.5f) * (float)cov;
+
+    const float dx = centerChunkX - (float)playerChunkX;
+    const float dz = centerChunkZ - (float)playerChunkZ;
+    const float dist = std::sqrt(dx * dx + dz * dz);
+
+    const float minDist = (float)Setting::getLODMinChunkDistance(level);
+    const float maxDist = (float)Setting::getLODMaxChunkDistance(level);
+
+    return dist >= (minDist - cov * 0.5f) && dist <= (maxDist + cov * 0.5f);
+}
+
+int World::calculateLODPriority(int tileX, int tileZ, int level,
+                                glm::vec3 cameraPos, glm::vec3 cameraFront,
+                                const Frustum &frustum, bool isLoading)
+{
+    const int cov = 1 << (level - 1);
+    const glm::vec3 minBounds(tileX * cov * Chunk::SIZE, 0.0f, tileZ * cov * Chunk::SIZE);
+    const glm::vec3 maxBounds((tileX + 1) * cov * Chunk::SIZE, (float)Chunk::HEIGHT, (tileZ + 1) * cov * Chunk::SIZE);
+    const glm::vec3 tileCenter = (minBounds + maxBounds) * 0.5f;
+
+    if (isLoading)
+    {
+        int dx = tileX * cov;
+        int dz = tileZ * cov;
+        return (dx * dx + dz * dz) + (level * 500);
+    }
+
+    float dist = glm::distance(cameraPos, tileCenter);
+    int priority = static_cast<int>(dist * 20.0f) + (level * 400);
+
+    if (frustum.isBoxVisible(minBounds, maxBounds))
+    {
+        glm::vec3 toTile = tileCenter - cameraPos;
+        float len = glm::length(toTile);
+        float dot = 0.0f;
+        if (len > 0.001f)
+        {
+            toTile /= len;
+            dot = glm::dot(cameraFront, toTile);
+        }
+        float crosshairFactor = 1.0f - dot; // 0.0 = center of crosshair, 2.0 = behind
+        priority += static_cast<int>(crosshairFactor * 1500.0f);
+    }
+    else
+    {
+        priority += 30000; // heavy penalty for tiles outside camera view
+    }
+
+    return priority;
+}
+
+void World::requestLODTile(int tileX, int tileZ, int level, int priority)
+{
+    long long key = getLODKey(tileX, tileZ, level);
+    queuedLODTiles[key] = {tileX, tileZ, level};
+
+    LODMeshRequest req;
+    req.tileX = tileX;
+    req.tileZ = tileZ;
+    req.level = level;
+    req.priority = priority;
+    req.key = key;
+    req.generation = worker->lodGeneration.load();
+
+    req.solidQuery = [](int wx, int wy, int wz) {
+        return TerrainGenerator::isSolidAt(wx, wz, wy);
+    };
+    req.heightQuery = [](int wx, int wz) {
+        return TerrainGenerator::sampleHeightAt(wx, wz);
+    };
+    req.blockQuery = [](int wx, int wy, int wz) {
+        return TerrainGenerator::sampleBlockAt(wx, wz, wy);
+    };
+
+    worker->enqueueLODMeshRequest(std::move(req));
+}
+
+void World::updateLOD(int playerChunkX, int playerChunkZ, glm::vec3 cameraPos,
+                      glm::vec3 cameraFront, const Frustum &frustum,
+                      bool isLoading, bool refreshRequests)
+{
+    // 1. Receive completed LOD results from worker (budgeted to avoid frame hitches)
+    constexpr int MAX_LOD_UPLOADS_PER_FRAME = 16;
+    int uploaded = 0;
+    LODMeshResult lodResult;
+    while (uploaded < MAX_LOD_UPLOADS_PER_FRAME && worker->popFinishedLODMesh(lodResult))
+    {
+        if (lodResult.generation != worker->lodGeneration.load())
+            continue;
+
+        long long key = lodResult.key;
+        queuedLODTiles.erase(key);
+
+        LODTile tile;
+        tile.tileX = lodResult.tileX;
+        tile.tileZ = lodResult.tileZ;
+        tile.level = lodResult.level;
+        tile.empty = lodResult.vertices.empty();
+        tile.spawnTime = (float)(SDL_GetTicks() / 1000.0);
+
+        int cov = 1 << (tile.level - 1);
+        tile.minBounds = glm::vec3(tile.tileX * cov * Chunk::SIZE, 0.0f, tile.tileZ * cov * Chunk::SIZE);
+        tile.maxBounds = glm::vec3((tile.tileX + 1) * cov * Chunk::SIZE, (float)Chunk::HEIGHT, (tile.tileZ + 1) * cov * Chunk::SIZE);
+
+        if (!tile.empty)
+        {
+            tile.mesh = std::make_unique<Mesh>(lodResult.vertices.data(), (unsigned int)(lodResult.vertices.size() * sizeof(float)));
+        }
+
+        lodTiles[key] = std::move(tile);
+        ++uploaded;
+    }
+
+    // 2. Unload far LOD tiles that left their ring
+    for (auto it = lodTiles.begin(); it != lodTiles.end();)
+    {
+        const auto &tile = it->second;
+        if (!inLODRing(tile.tileX, tile.tileZ, tile.level, playerChunkX, playerChunkZ))
+        {
+            auto qIt = lodOcclusionQueries.find(it->first);
+            if (qIt != lodOcclusionQueries.end())
+            {
+                OcclusionCulling::destroy(qIt->second);
+                lodOcclusionQueries.erase(qIt);
+            }
+            it = lodTiles.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    // 3. Scan rings and enqueue missing tiles with directional priority
+    if (refreshRequests && Setting::maxLODLevel > 0)
+    {
+        const int maxLevel = std::min(5, Setting::maxLODLevel);
+        for (int level = 1; level <= maxLevel; ++level)
+        {
+            const int cov = 1 << (level - 1);
+            const int maxChunkDist = Setting::getLODMaxChunkDistance(level);
+
+            const int tileRadius = (int)std::ceil((float)maxChunkDist / cov) + 1;
+            const int playerTileX = chunkToTile(playerChunkX, level);
+            const int playerTileZ = chunkToTile(playerChunkZ, level);
+
+            for (int dx = -tileRadius; dx <= tileRadius; ++dx)
+            {
+                for (int dz = -tileRadius; dz <= tileRadius; ++dz)
+                {
+                    int tx = playerTileX + dx;
+                    int tz = playerTileZ + dz;
+
+                    if (!inLODRing(tx, tz, level, playerChunkX, playerChunkZ))
+                        continue;
+
+                    long long key = getLODKey(tx, tz, level);
+                    if (lodTiles.contains(key) || queuedLODTiles.contains(key))
+                        continue;
+
+                    // Frustum culling check
+                    glm::vec3 minB(tx * cov * Chunk::SIZE, 0.0f, tz * cov * Chunk::SIZE);
+                    glm::vec3 maxB((tx + 1) * cov * Chunk::SIZE, (float)Chunk::HEIGHT, (tz + 1) * cov * Chunk::SIZE);
+
+                    if (!isLoading && !frustum.isBoxVisible(minB, maxB))
+                        continue;
+
+                    int priority = calculateLODPriority(tx, tz, level, cameraPos, cameraFront, frustum, isLoading);
+                    requestLODTile(tx, tz, level, priority);
+                }
+            }
+        }
+    }
+}
+
+void World::drawLOD(const glm::vec3 &cameraPos, const Frustum &frustum,
+                    const glm::mat4 &viewProjection, GLuint shaderID)
+{
+    if (lodTiles.empty())
+        return;
+
+    cacheUniformLocations(shaderID);
+
+    glUniform1i(uIsLODLoc, 1);
+
+    struct DistanceSortedLOD
+    {
+        float distSq;
+        LODTile *tile;
+    };
+    std::vector<DistanceSortedLOD> visibleTiles;
+    visibleTiles.reserve(lodTiles.size());
+
+    for (auto &[key, tile] : lodTiles)
+    {
+        if (tile.empty || !tile.mesh)
+            continue;
+
+        if (!frustum.isBoxVisible(tile.minBounds, tile.maxBounds))
+            continue;
+
+        glm::vec3 center = (tile.minBounds + tile.maxBounds) * 0.5f;
+        glm::vec3 delta = center - cameraPos;
+        float dSq = glm::dot(delta, delta);
+        visibleTiles.push_back({dSq, &tile});
+    }
+
+    // Sort front to back for early depth rejection
+    std::sort(visibleTiles.begin(), visibleTiles.end(),
+              [](const DistanceSortedLOD &a, const DistanceSortedLOD &b) {
+                  return a.distSq < b.distSq;
+              });
+
+    for (const auto &item : visibleTiles)
+    {
+        LODTile *tile = item.tile;
+        glUniform1f(uSpawnTimeLoc, tile->spawnTime);
+        tile->mesh->draw();
+    }
+
+    glUniform1i(uIsLODLoc, 0);
 }

@@ -1,6 +1,5 @@
 #pragma once
 #include "Chunk.h"
-#include "LODChunk.h"
 #include <atomic>
 #include <condition_variable>
 #include <functional>
@@ -76,6 +75,7 @@ struct LODMeshRequest
     int      tileX = 0;
     int      tileZ = 0;
     int      level = 1; // 1–5
+    int      priority = 0; // lower value = higher priority (camera-facing tiles built first)
 
     long long key        = 0; // unique tile key for result lookup
     uint32_t  generation = 0;
@@ -85,10 +85,8 @@ struct LODMeshRequest
     std::function<int(int, int)>            heightQuery; // (wx, wz)     -> int (highest Y)
     std::function<bool(int, int, int)>     solidQuery;  // (wx, wy, wz) -> true if solid
 
-    // priority_queue is a max-heap: invert the comparison so LOD1 is built
-    // first, then LOD2 through LOD5.  This fills the visible near boundary
-    // before spending worker time on the horizon.
-    bool operator<(const LODMeshRequest& o) const { return level > o.level; }
+    // priority_queue is a max-heap: lower priority value = higher priority
+    bool operator<(const LODMeshRequest& o) const { return priority > o.priority; }
 };
 
 // Result of a LOD mesh build from a worker thread

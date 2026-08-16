@@ -22,3 +22,7 @@ void Camera::updateVectors() {
 
   front = glm::normalize(direction);
 }
+
+void Camera::updateFov(float dt) {
+  currentFov += (targetFov - currentFov) * std::min(1.0f, dt * 18.0f);
+}

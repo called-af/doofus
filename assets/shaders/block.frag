@@ -1,5 +1,7 @@
 #version 460 core
 
+layout(early_fragment_tests) in;
+
 in vec2  TexCoord;
 flat in int   TexLayer;
 in vec3  FragPos;

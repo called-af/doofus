@@ -42,6 +42,20 @@ static inline int getTextureLayerForFace(BlockType blockType, int faceAxis,
     return 3;
   if (blockType == BlockType::Sand)
     return 4;
+  if (blockType == BlockType::Basalt)
+    return 5;
+  if (blockType == BlockType::Lava) 
+    return 6;
+  if (blockType == BlockType::Obsidian)
+    return 7;
+  if (blockType == BlockType::Ash)
+    return 8;
+  if (blockType == BlockType::Cinder)
+    return 9;
+  if (blockType == BlockType::Heavenstone)
+    return 10;
+  if (blockType == BlockType::Crystal)
+    return 11;
   return 0;
 }
 

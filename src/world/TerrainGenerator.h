@@ -74,16 +74,14 @@ public:
 
     //  Standalone height and block samplers (does not require loaded Chunk) 
     static int sampleHeightAt(int worldX, int worldZ);
-    static int sampleLODHeightAt(int worldX, int worldZ, int level);
-    // Returns true if the exact voxel at (worldX, y, worldZ) is solid ground.
-    // Unlike sampleLODHeightAt (which only reports the topmost surface Y per
-    // column), this actually walks the same tier/stem logic used during real
-    // terrain generation, so callers (e.g. LODMesher) can detect hollow gaps
-    // under floating islands instead of assuming everything below the surface
-    // height is solid.
     static bool isSolidAt(int worldX, int worldZ, int y);
     static BlockType sampleBlockAt(int worldX, int worldZ, int surfaceHeight);
-    static BlockType sampleLODBlockAt(int worldX, int worldZ, int surfaceHeight);
+
+    //  Standalone multi-tier samplers for LOD & physics
+    static int sampleHellFloorAt(int worldX, int worldZ);
+    static int sampleContinentHeightAt(int worldX, int worldZ);
+    static int sampleContinentBodyBottomAt(int worldX, int worldZ);
+    static int estimateBodyBottom(int flatPlateauH, float pDepth);
 
 private:
     using ColumnGrid = std::array<std::array<ColumnCache, Chunk::SIZE>, Chunk::SIZE>;
@@ -104,7 +102,4 @@ private:
     // Pillar support
     static bool shouldSpawnPillar(const TerrainSample &t);
     static void fillPillar(Chunk &chunk, int lx, int lz, int topH, int bottomH);
-
-    // Island geometry helpers
-    static int estimateBodyBottom(int flatPlateauH, float pDepth);
 };

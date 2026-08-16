@@ -37,8 +37,8 @@ public:
 
   // Small near plane so close objects are not clipped
   static inline float nearPlane = 0.1f;
-  // Far plane large enough to cover the entire LOD5 ring
-  static inline float farPlane = 11000.0f;
+  // Far plane aligned with active LOD distance
+  static inline float farPlane = 2000.0f;
 
   static inline float mouseSensitivity = 0.1f;
 
@@ -55,51 +55,55 @@ public:
   // WORLD
   // ======================
 
-  // Full-detail chunk render distance. Must equal lod1Start.
+  // Full-detail chunk render distance.
   static inline int renderDistance = 12;
 
-  // Flat baseline height while TerrainGenerator is being rebuilt from
-  // scratch. Used by computeHeight() until real noise-based shaping
-  // (continentalness, plateau, etc.) is added back in.
-  static inline int flatHeight = 64;
+  // ======================
+  // LOD SYSTEM (Level 1 to 5)
+  // ======================
 
-  // ─────────────────────────────────────────────────────────────────────────
-  //  5-Level LOD System
-  //
-  //  Each level doubles the sampling step relative to the previous level:
-  //    LOD1 → step=2  (2×2  chunks per tile, ~32 blocks per cell)
-  //    LOD2 → step=4  (4×4  chunks per tile, ~64 blocks per cell)
-  //    LOD3 → step=8  (8×8  chunks per tile, ~128 blocks per cell)
-  //    LOD4 → step=16 (16×16 chunks per tile, ~256 blocks per cell)
-  //    LOD5 → step=32 (32×32 chunks per tile, ~512 blocks per cell)
-  //
-  //  Critical rules:
-  //    lod1Start MUST == renderDistance
-  //    lodNStart MUST == lod(N-1)End  (no gaps or overlaps allowed)
-  // ─────────────────────────────────────────────────────────────────────────
+  // Maximum active LOD level:
+  //   0 = Disabled (only regular chunks)
+  //   1 = LOD 1 only (~256m)
+  //   2 = LOD 1 & 2 (voxel blocky, ~352m)
+  //   3 = LOD 1, 2 & 3 (analytical multi-span, ~512m, recommended default)
+  //   4 = Up to LOD 4 (~768m)
+  //   5 = Up to LOD 5 (~1088m)
+  static inline int maxLODLevel = 3;
 
-  // LOD1: high resolution, nearest ring (2×2 chunks per tile)
-  static inline int lod1Start = 12;
-  static inline int lod1End = 36;
+  // Ring distance offsets in chunks (relative to renderDistance).
+  // Kept moderate and close for high FPS, fast loading, and immediate visual clarity.
+  static inline int lod1Distance = 4;   // LOD 1: rd + 4  chunks (~256 blocks)
+  static inline int lod2Distance = 10;  // LOD 2: rd + 10 chunks (~352 blocks)
+  static inline int lod3Distance = 20;  // LOD 3: rd + 20 chunks (~512 blocks)
+  static inline int lod4Distance = 36;  // LOD 4: rd + 36 chunks (~768 blocks)
+  static inline int lod5Distance = 56;  // LOD 5: rd + 56 chunks (~1088 blocks)
 
-  // LOD2: medium resolution (4×4 chunks per tile)
-  static inline int lod2Start = 36;
-  static inline int lod2End = 100;
+  static inline int getLODMaxChunkDistance(int level)
+  {
+      switch (level)
+      {
+      case 1: return renderDistance + lod1Distance;
+      case 2: return renderDistance + lod2Distance;
+      case 3: return renderDistance + lod3Distance;
+      case 4: return renderDistance + lod4Distance;
+      case 5: return renderDistance + lod5Distance;
+      default: return renderDistance;
+      }
+  }
 
-  // LOD3: low resolution (8×8 chunks per tile)
-  static inline int lod3Start = 100;
-  static inline int lod3End = 600;
-
-  // LOD4: very low resolution (16×16 chunks per tile)
-  static inline int lod4Start = 600;
-  static inline int lod4End = 700;
-
-  // LOD5: ultra low resolution, very far distance (32×32 chunks per tile)
-  static inline int lod5Start = 700;
-  static inline int lod5End = 800;
-
-  // Total LOD render distance — must equal lod5End
-  static inline int lodRenderDistance = 800;
+  static inline int getLODMinChunkDistance(int level)
+  {
+      switch (level)
+      {
+      case 1: return renderDistance;
+      case 2: return renderDistance + lod1Distance;
+      case 3: return renderDistance + lod2Distance;
+      case 4: return renderDistance + lod3Distance;
+      case 5: return renderDistance + lod4Distance;
+      default: return renderDistance;
+      }
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Worker threads
@@ -118,7 +122,7 @@ public:
   // SHADOW
   // ======================
 
-  static inline int shadowDistance = 8;
+  static inline int shadowDistance = 12;
   static inline bool enableShadows = true;
 
   // 512 keeps the near shadow stable while reducing depth-pass fill cost by
@@ -227,7 +231,7 @@ public:
   //  PLATEAU — primary control for island shape
   // ─────────────────────────────────────────────────────────────────────────
 
-  static constexpr float plateauScale = 0.0012f;
+  static constexpr float plateauScale = 0.0009f;
   // Low threshold so the island is wide from the start
   static constexpr float plateauThreshold = 0.52f;
 
@@ -320,9 +324,20 @@ public:
   // FOG
   // ======================
 
-  // fogEnd is aligned with farPlane so fog covers the far render boundary of LOD5
-  static inline float fogStart = 5000.0f;
-  static inline float fogEnd = 9000.0f;
+  // Fog start and end aligned with active LOD distances for smooth horizon fading
+  static inline float fogStart = 350.0f;
+  static inline float fogEnd = 550.0f;
+
+  static inline float getFogEnd()
+  {
+      int maxChunks = (maxLODLevel > 0) ? getLODMaxChunkDistance(std::min(5, maxLODLevel)) : renderDistance;
+      return static_cast<float>(maxChunks * 16);
+  }
+
+  static inline float getFogStart()
+  {
+      return getFogEnd() * 0.70f;
+  }
 
   // ======================
   // PLAYER

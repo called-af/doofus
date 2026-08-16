@@ -225,16 +225,16 @@ void ChunkWorker::run()
             else
             {
                 // Multiple types available — use probability to distribute work
-                // Mesh=55%, Terrain=30%, LOD=15%
+                // Mesh=45%, Terrain=30%, LOD=25%
                 int roll = dis(rng);
 
-                if (!meshRequests.empty() && roll <= 55)
+                if (!meshRequests.empty() && roll <= 45)
                 {
                     meshReq = std::move(const_cast<MeshRequest &>(meshRequests.top()));
                     meshRequests.pop();
                     hasMesh = true;
                 }
-                else if (!requests.empty() && roll <= 85)
+                else if (!requests.empty() && roll <= 75)
                 {
                     req = requests.top();
                     requests.pop();
@@ -315,15 +315,8 @@ void ChunkWorker::run()
             if (lodReq.generation != lodGeneration.load())
                 continue;
 
-            std::vector<float> lodVertices;
-            LODMesher::build(
-                lodReq.level,
-                lodReq.tileX,
-                lodReq.tileZ,
-                lodReq.blockQuery,
-                lodReq.heightQuery,
-                lodReq.solidQuery,
-                lodVertices);
+            std::vector<float> localVertices;
+            LODMesher::build(lodReq, localVertices);
 
             if (lodReq.generation != lodGeneration.load())
                 continue;
@@ -333,7 +326,7 @@ void ChunkWorker::run()
             result.tileX = lodReq.tileX;
             result.tileZ = lodReq.tileZ;
             result.level = lodReq.level;
-            result.vertices = std::move(lodVertices);
+            result.vertices = std::move(localVertices);
             result.generation = lodReq.generation;
 
             std::lock_guard lock(mutex);

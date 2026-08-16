@@ -26,9 +26,13 @@ public:
 
   CameraMode mode = CameraMode::FirstPerson;
 
+  float currentFov = Setting::fov;
+  float targetFov = Setting::fov;
+
   Camera();
 
   glm::mat4 getViewMatrix();
 
   void updateVectors();
+  void updateFov(float dt);
 };

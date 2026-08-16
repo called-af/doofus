@@ -55,6 +55,43 @@ private:
   bool shadowActive = false;   // Shadow state hysteresis flag shared between renderShadowPass and render to prevent flicker
   glm::mat4 lightSpaceMatrix = glm::mat4(1.0f);
 
+  // Cached uniform locations to eliminate glGetUniformLocation per frame
+  struct BlockShaderUniforms {
+    GLint cameraPos = -1;
+    GLint fogColor = -1;
+    GLint fogStart = -1;
+    GLint fogEnd = -1;
+    GLint uTopColor = -1;
+    GLint uLightDir = -1;
+    GLint uLightColor = -1;
+    GLint uAmbientColor = -1;
+    GLint uShadowDistance = -1;
+    GLint uShadowsEnabled = -1;
+    GLint model = -1;
+    GLint view = -1;
+    GLint projection = -1;
+    GLint lightSpaceMatrix = -1;
+  } blockUniforms;
+
+  struct ShadowShaderUniforms {
+    GLint lightSpaceMatrix = -1;
+    GLint model = -1;
+    GLint uTime = -1;
+    GLint uIsLOD = -1;
+    GLint uLodSpawnTime = -1;
+  } shadowUniforms;
+
+  struct SkyShaderUniforms {
+    GLint invProj = -1;
+    GLint invView = -1;
+  } skyUniforms;
+
+  struct PlayerShaderUniforms {
+    GLint model = -1;
+    GLint view = -1;
+    GLint projection = -1;
+  } playerUniforms;
+
   void setupShadowPass();
   void renderShadowPass();
 };

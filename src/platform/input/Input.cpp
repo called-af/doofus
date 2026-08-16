@@ -20,6 +20,8 @@ bool Input::escape = false;
 bool Input::escapePressed = false;
 bool Input::bracketLeftPressed = false;
 bool Input::bracketRightPressed = false;
+bool Input::kPressed = false;
+bool Input::lPressed = false;
 float Input::mouseX = 0.0f;
 float Input::mouseY = 0.0f;
 
@@ -31,6 +33,8 @@ void Input::beginFrame()
     vPressed = false;
     bracketLeftPressed = false;
     bracketRightPressed = false;
+    kPressed = false;
+    lPressed = false;
     mouseX = 0.0f;
     mouseY = 0.0f;
 }
@@ -63,6 +67,10 @@ void Input::handleEvent(SDL_Event& e)
             if (pressed) oPressed = true;
             break;
 
+        case SDLK_C:
+            c = pressed;
+            break;
+
         case SDLK_V:
             v = pressed;
             if (pressed) vPressed = true;
@@ -87,6 +95,14 @@ void Input::handleEvent(SDL_Event& e)
 
         case SDLK_RIGHTBRACKET:
             if (pressed) bracketRightPressed = true;
+            break;
+
+        case SDLK_K:
+            if (pressed) kPressed = true;
+            break;
+
+        case SDLK_L:
+            if (pressed) lPressed = true;
             break;
         }
     }

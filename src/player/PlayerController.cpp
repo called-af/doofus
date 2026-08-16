@@ -37,6 +37,23 @@ void PlayerController::update(Camera &camera, TransformComponent &transform,
   if (Input::oPressed) {
     Setting::enableShadows = !Setting::enableShadows;
   }
+  if (Input::kPressed) {
+    Setting::maxLODLevel = std::max(0, Setting::maxLODLevel - 1);
+  }
+  if (Input::lPressed) {
+    Setting::maxLODLevel = std::min(5, Setting::maxLODLevel + 1);
+  }
+
+  /*
+      ZOOM IN / OUT (Hold C key)
+  */
+
+  if (Input::c) {
+    camera.targetFov = Setting::fov / 3.0f; // 3x Zoom (30 deg FOV)
+  } else {
+    camera.targetFov = Setting::fov;
+  }
+  camera.updateFov(dt);
 
   /*
       CAMERA MODE TOGGLE (using V key)
@@ -52,9 +69,10 @@ void PlayerController::update(Camera &camera, TransformComponent &transform,
   */
 
   if (cursorLocked) {
-    camera.yaw += Input::mouseX * Setting::mouseSensitivity;
+    float zoomFactor = camera.currentFov / Setting::fov;
+    camera.yaw += Input::mouseX * Setting::mouseSensitivity * zoomFactor;
 
-    camera.pitch -= Input::mouseY * Setting::mouseSensitivity;
+    camera.pitch -= Input::mouseY * Setting::mouseSensitivity * zoomFactor;
 
     camera.pitch = glm::clamp(camera.pitch, -89.0f, 89.0f);
 

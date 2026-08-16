@@ -21,6 +21,8 @@ public:
     static bool escapePressed;
     static bool bracketLeftPressed;
     static bool bracketRightPressed;
+    static bool kPressed;
+    static bool lPressed;
 
     static float mouseX;
     static float mouseY; 

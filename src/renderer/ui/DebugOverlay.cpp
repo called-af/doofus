@@ -104,4 +104,8 @@ void DebugOverlay::render(int screenWidth, int screenHeight, float fps,
   startY += lineH;
   font.drawText("Shadows: " + std::string(Setting::enableShadows ? "ON" : "OFF") + " (O)",
                 startX, startY, scale, white, screenWidth, screenHeight);
+  startY += lineH;
+  std::string lodStatus = (Setting::maxLODLevel <= 0) ? "OFF" : ("LOD 1-" + std::to_string(Setting::maxLODLevel));
+  font.drawText("LOD Level: " + lodStatus + " (K/L to change)",
+                startX, startY, scale, white, screenWidth, screenHeight);
 }

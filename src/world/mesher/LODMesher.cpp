@@ -1,271 +1,617 @@
 #include "LODMesher.h"
-#include "../Chunk.h"
+#include "../TerrainGenerator.h"
+#include "../noise/FBMNoise.h"
+#include "../noise/RidgeNoise.h"
+#include "../terrain/TerrainSampler.h"
 #include "../../core/Setting.h"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 
-namespace
+namespace {
+
+// Push 1 vertex to the vertex buffer: [x, y, z, u, v, textureLayer, light]
+inline void pushVertex(std::vector<float> &vertexBuffer, float x,
+                       float y, float z, float u, float v,
+                       float textureLayer, float light)
 {
-    constexpr int kCells = Chunk::SIZE;
+    vertexBuffer.push_back(x);
+    vertexBuffer.push_back(y);
+    vertexBuffer.push_back(z);
+    vertexBuffer.push_back(u);
+    vertexBuffer.push_back(v);
+    vertexBuffer.push_back(textureLayer);
+    vertexBuffer.push_back(light);
+}
 
-    struct SurfaceCell
+// Select texture layer based on block type, axis (0=X, 1=Y, 2=Z), and face orientation
+inline int getTextureLayerForFace(BlockType blockType, int faceAxis, bool isBackFace)
+{
+    if (blockType == BlockType::Grass)
     {
-        float height = -1.0f;
-        BlockType type = BlockType::Air;
-        bool valid = false;
-    };
-
-    void push(std::vector<float> &out, float x, float y, float z,
-              float u, float v, float layer, float light)
-    {
-        out.insert(out.end(), {x, y, z, u, v, layer, light});
+        if (faceAxis == 1)
+            return isBackFace ? 2 : 0; // Y-axis: top=0 (grass), bottom=2 (dirt)
+        return 1;                    // side = layer 1
     }
+    if (blockType == BlockType::Dirt)
+        return 2;
+    if (blockType == BlockType::Stone)
+        return 3;
+    if (blockType == BlockType::Sand)
+        return 4;
+    if (blockType == BlockType::Basalt)
+        return 5;
+    if (blockType == BlockType::Lava)
+        return 6;
+    if (blockType == BlockType::Obsidian)
+        return 7;
+    if (blockType == BlockType::Ash)
+        return 8;
+    if (blockType == BlockType::Cinder)
+        return 9;
+    if (blockType == BlockType::Heavenstone)
+        return 10;
+    if (blockType == BlockType::Crystal)
+        return 11;
+    return 0;
+}
 
-    float layerFor(BlockType type, bool top)
+// Emit horizontal top quad facing +Y
+void emitTopQuad(std::vector<float> &vertexBuffer, float minX, float maxX,
+                 float minZ, float maxZ, float y, BlockType blockType)
+{
+    const float layer = (float)getTextureLayerForFace(blockType, 1, false);
+    constexpr float light = 1.0f;
+    const float u0 = minX, v0 = minZ;
+    const float u1 = maxX, v1 = maxZ;
+
+    // CCW: (p0, p1, p2) and (p0, p2, p3)
+    pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
+    pushVertex(vertexBuffer, maxX, y, maxZ, u1, v1, layer, light);
+    pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
+
+    pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
+    pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
+    pushVertex(vertexBuffer, minX, y, minZ, u0, v0, layer, light);
+}
+
+// Emit horizontal bottom quad facing -Y
+void emitBottomQuad(std::vector<float> &vertexBuffer, float minX, float maxX,
+                    float minZ, float maxZ, float y, BlockType blockType)
+{
+    const float layer = (float)getTextureLayerForFace(blockType, 1, true);
+    constexpr float light = 0.55f;
+    const float u0 = minX, v0 = minZ;
+    const float u1 = maxX, v1 = maxZ;
+
+    // CCW looking from below (-Y): (p0, p3, p2) and (p0, p2, p1)
+    pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
+    pushVertex(vertexBuffer, minX, y, minZ, u0, v0, layer, light);
+    pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
+
+    pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
+    pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
+    pushVertex(vertexBuffer, maxX, y, maxZ, u1, v1, layer, light);
+}
+
+// Emit vertical quad along X plane (facing +X if !isBackFace, -X if isBackFace)
+void emitSideQuadX(std::vector<float> &vertexBuffer, float x, float minY, float maxY,
+                   float minZ, float maxZ, bool isBackFace, BlockType blockType)
+{
+    if (minY >= maxY)
+        return;
+
+    const float layer = (float)getTextureLayerForFace(blockType, 0, isBackFace);
+    constexpr float light = 0.80f;
+    const float u0 = minZ, v0 = minY;
+    const float u1 = maxZ, v1 = maxY;
+
+    if (!isBackFace)
     {
-        if (type == BlockType::Grass) return top ? 0.0f : 1.0f;
-        if (type == BlockType::Dirt)  return 2.0f;
-        if (type == BlockType::Stone) return 3.0f;
-        if (type == BlockType::Sand)  return 4.0f;
-        return 0.0f;
+        // +X normal
+        pushVertex(vertexBuffer, x, minY, minZ, u0, v0, layer, light);
+        pushVertex(vertexBuffer, x, maxY, minZ, u0, v1, layer, light);
+        pushVertex(vertexBuffer, x, maxY, maxZ, u1, v1, layer, light);
+
+        pushVertex(vertexBuffer, x, minY, minZ, u0, v0, layer, light);
+        pushVertex(vertexBuffer, x, maxY, maxZ, u1, v1, layer, light);
+        pushVertex(vertexBuffer, x, minY, maxZ, u1, v0, layer, light);
     }
-
-    void top(std::vector<float> &out, float x0, float z0, float x1, float z1,
-             float y00, float y10, float y11, float y01, float layer)
+    else
     {
-        // World-space UVs are intentional: the fragment shader repeats them and
-        // therefore a merged/coarse face never stretches one texel over a tile.
-        // Counter-clockwise when viewed from above (+Y).  Back-face culling is
-        // enabled for terrain, so reversed winding makes every LOD top disappear.
-        push(out, x0, y00, z0, z0, x0, layer, 1.0f);
-        push(out, x0, y01, z1, z1, x0, layer, 1.0f);
-        push(out, x1, y11, z1, z1, x1, layer, 1.0f);
-        push(out, x0, y00, z0, z0, x0, layer, 1.0f);
-        push(out, x1, y11, z1, z1, x1, layer, 1.0f);
-        push(out, x1, y10, z0, z0, x1, layer, 1.0f);
+        // -X normal
+        pushVertex(vertexBuffer, x, minY, maxZ, u0, v0, layer, light);
+        pushVertex(vertexBuffer, x, maxY, maxZ, u0, v1, layer, light);
+        pushVertex(vertexBuffer, x, maxY, minZ, u1, v1, layer, light);
+
+        pushVertex(vertexBuffer, x, minY, maxZ, u0, v0, layer, light);
+        pushVertex(vertexBuffer, x, maxY, minZ, u1, v1, layer, light);
+        pushVertex(vertexBuffer, x, minY, minZ, u1, v0, layer, light);
     }
+}
 
-    void wallX(std::vector<float> &out, float x, float z0, float z1,
-               float bottom, float topY, float layer, bool positive)
+// Emit vertical quad along Z plane (facing +Z if !isBackFace, -Z if isBackFace)
+void emitSideQuadZ(std::vector<float> &vertexBuffer, float z, float minX, float maxX,
+                   float minY, float maxY, bool isBackFace, BlockType blockType)
+{
+    if (minY >= maxY)
+        return;
+
+    const float layer = (float)getTextureLayerForFace(blockType, 2, isBackFace);
+    constexpr float light = 0.70f;
+    const float u0 = minX, v0 = minY;
+    const float u1 = maxX, v1 = maxY;
+
+    if (!isBackFace)
     {
-        if (topY <= bottom) return;
-        if (positive)
+        // +Z normal
+        pushVertex(vertexBuffer, maxX, minY, z, u0, v0, layer, light);
+        pushVertex(vertexBuffer, maxX, maxY, z, u0, v1, layer, light);
+        pushVertex(vertexBuffer, minX, maxY, z, u1, v1, layer, light);
+
+        pushVertex(vertexBuffer, maxX, minY, z, u0, v0, layer, light);
+        pushVertex(vertexBuffer, minX, maxY, z, u1, v1, layer, light);
+        pushVertex(vertexBuffer, minX, minY, z, u1, v0, layer, light);
+    }
+    else
+    {
+        // -Z normal
+        pushVertex(vertexBuffer, minX, minY, z, u0, v0, layer, light);
+        pushVertex(vertexBuffer, minX, maxY, z, u0, v1, layer, light);
+        pushVertex(vertexBuffer, maxX, maxY, z, u1, v1, layer, light);
+
+        pushVertex(vertexBuffer, minX, minY, z, u0, v0, layer, light);
+        pushVertex(vertexBuffer, maxX, maxY, z, u1, v1, layer, light);
+        pushVertex(vertexBuffer, maxX, minY, z, u1, v0, layer, light);
+    }
+}
+
+// Find candidate Heaven seeds overlapping a given world AABB
+void findCandidateHeavenSeeds(float minX, float maxX, float minZ, float maxZ,
+                              std::vector<FeatureSeed> &outSeeds)
+{
+    outSeeds.clear();
+    constexpr float g = Setting::heavenClusterSpacing;
+    constexpr float maxClusterRadius = 220.0f; // max giant island radius + satellite offsets + warp
+
+    int minCellX = static_cast<int>(std::floor((minX - maxClusterRadius) / g));
+    int maxCellX = static_cast<int>(std::floor((maxX + maxClusterRadius) / g));
+    int minCellZ = static_cast<int>(std::floor((minZ - maxClusterRadius) / g));
+    int maxCellZ = static_cast<int>(std::floor((maxZ + maxClusterRadius) / g));
+
+    for (int cx = minCellX; cx <= maxCellX; ++cx)
+    {
+        for (int cz = minCellZ; cz <= maxCellZ; ++cz)
         {
-            push(out, x, bottom, z0, z0, bottom, layer, .80f);
-            push(out, x, topY, z0, z0, topY, layer, .80f);
-            push(out, x, topY, z1, z1, topY, layer, .80f);
-            push(out, x, bottom, z0, z0, bottom, layer, .80f);
-            push(out, x, topY, z1, z1, topY, layer, .80f);
-            push(out, x, bottom, z1, z1, bottom, layer, .80f);
-        }
-        else
-        {
-            push(out, x, bottom, z1, z1, bottom, layer, .80f);
-            push(out, x, topY, z1, z1, topY, layer, .80f);
-            push(out, x, topY, z0, z0, topY, layer, .80f);
-            push(out, x, bottom, z1, z1, bottom, layer, .80f);
-            push(out, x, topY, z0, z0, topY, layer, .80f);
-            push(out, x, bottom, z0, z0, bottom, layer, .80f);
-        }
-    }
-
-    void wallZ(std::vector<float> &out, float z, float x0, float x1,
-               float bottom, float topY, float layer, bool positive)
-    {
-        if (topY <= bottom) return;
-        if (positive)
-        {
-            push(out, x1, bottom, z, x1, bottom, layer, .70f);
-            push(out, x1, topY, z, x1, topY, layer, .70f);
-            push(out, x0, topY, z, x0, topY, layer, .70f);
-            push(out, x1, bottom, z, x1, bottom, layer, .70f);
-            push(out, x0, topY, z, x0, topY, layer, .70f);
-            push(out, x0, bottom, z, x0, bottom, layer, .70f);
-        }
-        else
-        {
-            push(out, x0, bottom, z, x0, bottom, layer, .70f);
-            push(out, x0, topY, z, x0, topY, layer, .70f);
-            push(out, x1, topY, z, x1, topY, layer, .70f);
-            push(out, x0, bottom, z, x0, bottom, layer, .70f);
-            push(out, x1, topY, z, x1, topY, layer, .70f);
-            push(out, x1, bottom, z, x1, bottom, layer, .70f);
-        }
-    }
-
-    SurfaceCell sampleCell(int level, int x0, int z0, int step,
-                           const LODMesher::BlockQuery &block, const LODMesher::HeightQuery &height)
-    {
-        const int sampleAxis = level == 1 ? 2 : 3;
-        const int totalSamples = sampleAxis * sampleAxis;
-        int heights = 0, count = 0;
-        std::array<int, 5> votes{};
-        for (int sz = 0; sz < sampleAxis; ++sz)
-            for (int sx = 0; sx < sampleAxis; ++sx)
+            FeatureSeed s = TerrainGenerator::generateHeavenSeed(cx, cz);
+            if (s.exists)
             {
-                const int wx = x0 + ((2 * sx + 1) * step) / (2 * sampleAxis);
-                const int wz = z0 + ((2 * sz + 1) * step) / (2 * sampleAxis);
-                const int h = height(wx, wz);
-                if (h < 0) continue;
-                heights += h;
-                ++count;
-                const BlockType type = block(wx, h, wz);
-                if (type == BlockType::Grass) ++votes[0];
-                else if (type == BlockType::Dirt) ++votes[2];
-                else if (type == BlockType::Stone) ++votes[3];
-                else if (type == BlockType::Sand) ++votes[4];
+                outSeeds.push_back(s);
             }
-
-        if (count * 2 < totalSamples)
-            return {};
-
-        const int winner = int(std::max_element(votes.begin(), votes.end()) - votes.begin());
-        const BlockType types[] = {BlockType::Grass, BlockType::Air, BlockType::Dirt,
-                                   BlockType::Stone, BlockType::Sand};
-        return {float(heights) / float(count), types[winner], true};
-    }
-
-    // Scan downward from just below `topY` looking for the first voxel that
-    // is actually air. That point becomes the real wall bottom. This is what
-    // lets a floating island's hollow stem produce a genuine gap instead of
-    // a wall stretched all the way to the ground below it.
-    //
-    // sampleStep keeps this cheap: at low LOD levels the cell already covers
-    // many real blocks, so we don't need to test every single Y.
-    float findRealWallBottom(int wx, int wz, float topY, float floorLimit,
-                             const LODMesher::SolidQuery &solid, int sampleStep)
-    {
-        if (!solid) return floorLimit; // no solidity info available -> old behavior
-        float y = topY - 1.0f;
-        float lastSolidY = topY;
-        while (y > floorLimit)
-        {
-            if (!solid(wx, (int)y, wz))
-                return y + 1.0f; // hit a gap -> stop the wall here
-            lastSolidY = y;
-            y -= (float)sampleStep;
         }
-        return floorLimit;
     }
+}
 
-    void buildVoxelSurface(int level, int originX, int originZ, int step,
-                           const LODMesher::BlockQuery &block, const LODMesher::HeightQuery &height,
-                           const LODMesher::SolidQuery &solid,
-                           std::vector<float> &out)
-    {
-        std::array<SurfaceCell, kCells * kCells> grid;
-        for (int z = 0; z < kCells; ++z)
-            for (int x = 0; x < kCells; ++x)
-                grid[z * kCells + x] = sampleCell(level, originX + x * step, originZ + z * step,
-                                                  step, block, height);
+} // anonymous namespace
 
-        // How coarsely to scan for the real wall bottom. Cheap: a handful of
-        // samples per wall rather than checking every voxel.
-        const int scanStep = std::max(1, step / 4);
-
-        for (int z = 0; z < kCells; ++z)
-            for (int x = 0; x < kCells; ++x)
-            {
-                const SurfaceCell &c = grid[z * kCells + x];
-                if (!c.valid) continue;
-
-                const float x0 = float(originX + x * step), x1 = x0 + step;
-                const float z0 = float(originZ + z * step), z1 = z0 + step, y = c.height + 1.0f;
-                top(out, x0, z0, x1, z1, y, y, y, y, layerFor(c.type, true));
-                const float side = layerFor(c.type, false);
-
-                // Neighbor height only decides HOW FAR a wall could plausibly
-                // reach (out-of-tile neighbors still drop to 0 to stay seamless
-                // with adjacent tiles). The ACTUAL bottom is then clipped by a
-                // real solidity scan, so a hollow stem or overhang stops the
-                // wall at the true gap instead of stretching to the neighbor.
-                const auto neighborLimit = [&](int nx, int nz) -> float
-                {
-                    if (nx < 0 || nx >= kCells || nz < 0 || nz >= kCells)
-                        return 0.0f;
-                    const SurfaceCell &n = grid[nz * kCells + nx];
-                    if (!n.valid) return y; // treat as no drop -> wall skip guard handles it
-                    return n.height + 1.0f;
-                };
-
-                const int wxCenter = int(x0 + step * 0.5f);
-                const int wzCenter = int(z0 + step * 0.5f);
-
-                const float limNX = neighborLimit(x - 1, z);
-                const float limPX = neighborLimit(x + 1, z);
-                const float limNZ = neighborLimit(x, z - 1);
-                const float limPZ = neighborLimit(x, z + 1);
-
-                const float bottomNX = findRealWallBottom(wxCenter, wzCenter, y, limNX, solid, scanStep);
-                const float bottomPX = findRealWallBottom(wxCenter, wzCenter, y, limPX, solid, scanStep);
-                const float bottomNZ = findRealWallBottom(wxCenter, wzCenter, y, limNZ, solid, scanStep);
-                const float bottomPZ = findRealWallBottom(wxCenter, wzCenter, y, limPZ, solid, scanStep);
-
-                wallX(out, x0, z0, z1, bottomNX, y, side, false);
-                wallX(out, x1, z0, z1, bottomPX, y, side, true);
-                wallZ(out, z0, x0, x1, bottomNZ, y, side, false);
-                wallZ(out, z1, x0, x1, bottomPZ, y, side, true);
-            }
-    }
-
-void buildHeightmap(int level, int originX, int originZ, int step,
-                        const LODMesher::BlockQuery &block, const LODMesher::HeightQuery &height,
-                        std::vector<float> &out)
-    {
-        // LOD3-5 use a simplified fast-path height formula that doesn't match
-        // isSolidAt's reconstruction (which mirrors the LOD1/2 formula), so
-        // solidity scanning here would misfire and erase walls everywhere.
-        // Fall back to the neighbor-clamp approach for these far levels.
-        const int cells = level == 3 ? kCells : 8;
-        const int cellStep = (step * kCells) / cells;
-        const int points = cells + 1;
-        std::vector<float> h(points * points);
-        std::vector<BlockType> type(points * points);
-
-        for (int z = 0; z < points; ++z)
-            for (int x = 0; x < points; ++x)
-            {
-                const int i = z * points + x, wx = originX + x * cellStep, wz = originZ + z * cellStep;
-                h[i] = float(std::max(0, height(wx, wz)) + 1);
-                type[i] = block(wx, int(h[i] - 1), wz);
-            }
-
-        const float cliff = std::max(float(Setting::terraceHeight), float(cellStep) * .35f);
-        constexpr float kMaxWallDrop = 6.0f;
-
-        for (int z = 0; z < cells; ++z)
-            for (int x = 0; x < cells; ++x)
-            {
-                const int i = z * points + x;
-                const float x0 = originX + x * cellStep, z0 = originZ + z * cellStep,
-                            x1 = x0 + cellStep, z1 = z0 + cellStep;
-                top(out, x0, z0, x1, z1, h[i], h[i + 1], h[i + points + 1], h[i + points], layerFor(type[i], true));
-
-                const float side = layerFor(type[i], false);
-                if (x != 0 && std::abs(h[i] - h[i - 1]) > cliff)
-                    wallX(out, x0, z0, z1, std::max(h[i - 1], h[i] - kMaxWallDrop), h[i], side, false);
-                if (x != cells - 1 && std::abs(h[i + 1] - h[i + 2]) > cliff)
-                    wallX(out, x1, z0, z1, std::max(h[i + 2], h[i + 1] - kMaxWallDrop), h[i + 1], side, true);
-                if (z != 0 && std::abs(h[i] - h[i - points]) > cliff)
-                    wallZ(out, z0, x0, x1, std::max(h[i - points], h[i] - kMaxWallDrop), h[i], side, false);
-                if (z != cells - 1 && std::abs(h[i + points] - h[i + 2 * points]) > cliff)
-                    wallZ(out, z1, x0, x1, std::max(h[i + 2 * points], h[i + points] - kMaxWallDrop), h[i + points], side, true);
-            }
-    }
-} // namespace
-
-void LODMesher::build(int level, int tileX, int tileZ, const BlockQuery &blockQuery,
-                      const HeightQuery &heightQuery, const SolidQuery &solidQuery,
-                      std::vector<float> &outVertices)
+void LODMesher::build(const LODMeshRequest &req, std::vector<float> &outVertices)
 {
     outVertices.clear();
-    const int step = 1 << level;
-    const int coverage = step * Chunk::SIZE;
-    const int originX = tileX * coverage, originZ = tileZ * coverage;
-    if (level <= 2)
-        buildVoxelSurface(level, originX, originZ, step, blockQuery, heightQuery, solidQuery, outVertices);
+    if (req.level <= 2)
+    {
+        buildVoxelLOD(req, outVertices);
+    }
     else
-        buildHeightmap(level, originX, originZ, step, blockQuery, heightQuery, outVertices); 
+    {
+        buildAnalyticalLOD(req, outVertices);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Phase 2: LOD 1 & 2 (Voxel Blocky Mesher) — Fully Optimized
+// ─────────────────────────────────────────────────────────────────────────────
+
+void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &outVertices)
+{
+    const int level = std::clamp(req.level, 1, 2);
+    const int covChunks = 1 << (level - 1);       // 1 chunk (LOD1) or 2 chunks (LOD2)
+    const int stride = level;                     // 1 block (LOD1) or 2 blocks (LOD2)
+    constexpr int GRID_SIZE = 16;                 // 16x16 sample cells per tile
+    const int tileWidthBlocks = covChunks * Chunk::SIZE;
+
+    const int baseWorldX = req.tileX * tileWidthBlocks;
+    const int baseWorldZ = req.tileZ * tileWidthBlocks;
+
+    // Pre-query Heaven seeds overlapping this tile
+    std::vector<FeatureSeed> tileHeavenSeeds;
+    findCandidateHeavenSeeds(static_cast<float>(baseWorldX),
+                             static_cast<float>(baseWorldX + tileWidthBlocks),
+                             static_cast<float>(baseWorldZ),
+                             static_cast<float>(baseWorldZ + tileWidthBlocks),
+                             tileHeavenSeeds);
+
+    // Fast column scanner with zero redundant noise sampling
+    auto scanColumn = [&](int wx, int wz) -> LODColumn
+    {
+        LODColumn col;
+
+        const int floorH = TerrainGenerator::sampleHellFloorAt(wx, wz);
+        const int contH  = TerrainGenerator::sampleContinentHeightAt(wx, wz);
+        const int contBot = (contH > 0) ? TerrainGenerator::sampleContinentBodyBottomAt(wx, wz) : 0;
+
+        // Tier 1 Hell Floor span: 0..floorH
+        BlockType hellType = TerrainGenerator::sampleBlockAt(wx, wz, floorH);
+        col.spans.push_back({floorH, 0, hellType, false, true});
+
+        // Tier 2 Continent + Hourglass stem
+        if (contH > 0 && contH >= contBot)
+        {
+            const TerrainSample terrain = TerrainSampler::sample(wx, wz);
+            const float raw = (terrain.plateau - Setting::plateauThreshold) / (1.0f - Setting::plateauThreshold);
+            const float pClamped = std::clamp(raw, 0.0f, 1.0f);
+            const float pDepth = pClamped * pClamped * (3.0f - 2.0f * pClamped);
+
+            const int stemTop = contBot;
+            const int stemBottom = floorH + 1;
+            const int stemHeight = stemTop - stemBottom;
+
+            int stemSpanBot = -1;
+            int stemSpanTop = -1;
+
+            if (stemHeight > 0)
+            {
+                constexpr float waistRatio = 0.32f;
+                for (int y = stemBottom; y < stemTop; y += stride)
+                {
+                    const float tNorm = static_cast<float>(y - stemBottom) / static_cast<float>(stemHeight);
+                    const float midDist = std::abs(tNorm - 0.5f) * 2.0f;
+                    const float shapeFactor = waistRatio + (1.0f - waistRatio) * (midDist * midDist);
+                    const float baseRequiredDepth = 1.0f - shapeFactor * (1.0f - Setting::islandEdgeCutoff);
+
+                    const float rockDetail = FBMNoise::generate(wx * 0.05f + y * 0.15f, wz * 0.05f + y * 0.15f, 2, 0.5f, 0.5f, Setting::seed + 777) * 0.07f;
+                    const float verticalRidge = RidgeNoise::generate(static_cast<float>(wx), static_cast<float>(wz + y * 2), 2, 0.5f, 0.03f, Setting::seed + 888) * 0.04f;
+
+                    if (pDepth >= baseRequiredDepth + rockDetail - verticalRidge)
+                    {
+                        if (stemSpanBot == -1)
+                            stemSpanBot = y;
+                        stemSpanTop = y;
+                    }
+                    else if (stemSpanBot != -1)
+                    {
+                        // Stem detached segment
+                        col.spans.push_back({stemSpanTop, stemSpanBot, BlockType::Stone, true, true});
+                        stemSpanBot = -1;
+                        stemSpanTop = -1;
+                    }
+                }
+            }
+
+            int finalContinentBot = (stemSpanTop == stemTop - 1 || stemSpanTop >= stemTop - stride) && stemSpanBot != -1 ? stemSpanBot : contBot;
+            BlockType contType = TerrainGenerator::sampleBlockAt(wx, wz, contH);
+            col.spans.push_back({contH, finalContinentBot, contType, true, true});
+        }
+
+        // Tier 3 Heaven Floating Islands
+        for (const auto &s : tileHeavenSeeds)
+        {
+            const int totalIslands = 1 + s.subIsletCount;
+            for (int i = 0; i < totalIslands; ++i)
+            {
+                IslandSlice slice = TerrainGenerator::evaluateIslandSlice(static_cast<float>(wx), static_cast<float>(wz), s, i);
+                if (slice.valid)
+                {
+                    const int minH = std::clamp(static_cast<int>(slice.botY), 280, Chunk::HEIGHT - 2);
+                    const int maxH = std::clamp(static_cast<int>(slice.topY), minH, Chunk::HEIGHT - 1);
+                    BlockType hType = slice.isAnchorPeak ? BlockType::Crystal : BlockType::Grass;
+                    col.spans.push_back({maxH, minH, hType, true, true});
+                }
+            }
+        }
+
+        return col;
+    };
+
+    // Scan all 16x16 columns in this tile
+    LODColumn grid[GRID_SIZE][GRID_SIZE];
+    for (int lx = 0; lx < GRID_SIZE; ++lx)
+    {
+        for (int lz = 0; lz < GRID_SIZE; ++lz)
+        {
+            grid[lx][lz] = scanColumn(baseWorldX + lx * stride, baseWorldZ + lz * stride);
+        }
+    }
+
+    auto getNeighbor = [&](int gx, int gz) -> LODColumn
+    {
+        if (gx >= 0 && gx < GRID_SIZE && gz >= 0 && gz < GRID_SIZE)
+            return grid[gx][gz];
+        return scanColumn(baseWorldX + gx * stride, baseWorldZ + gz * stride);
+    };
+
+    // Emit faces for all columns
+    for (int lx = 0; lx < GRID_SIZE; ++lx)
+    {
+        const float minX = static_cast<float>(baseWorldX + lx * stride);
+        const float maxX = minX + static_cast<float>(stride);
+
+        for (int lz = 0; lz < GRID_SIZE; ++lz)
+        {
+            const float minZ = static_cast<float>(baseWorldZ + lz * stride);
+            const float maxZ = minZ + static_cast<float>(stride);
+
+            const LODColumn &col = grid[lx][lz];
+            if (col.spans.empty())
+                continue;
+
+            const LODColumn nNX = getNeighbor(lx - 1, lz);
+            const LODColumn nPX = getNeighbor(lx + 1, lz);
+            const LODColumn nNZ = getNeighbor(lx, lz - 1);
+            const LODColumn nPZ = getNeighbor(lx, lz + 1);
+
+            for (const auto &span : col.spans)
+            {
+                const float topY = static_cast<float>(span.topY + stride);
+                const float botY = static_cast<float>(span.bottomY);
+
+                // Top quad
+                emitTopQuad(outVertices, minX, maxX, minZ, maxZ, topY, span.surfaceType);
+
+                // Bottom quad (for floating continent/heaven bodies)
+                if (span.needsBottomCap)
+                {
+                    BlockType botType = (span.bottomY >= 270) ? BlockType::Heavenstone : BlockType::Stone;
+                    emitBottomQuad(outVertices, minX, maxX, minZ, maxZ, botY, botType);
+                }
+
+                // Helper to emit exposed vertical side faces
+                auto emitSideAgainstNeighbor = [&](const LODColumn &nCol, float borderCoord, bool isXAxis, bool isBackFace)
+                {
+                    int exposedBot = -1;
+                    int exposedTop = -1;
+
+                    auto closeExposed = [&](int eBot, int eTop)
+                    {
+                        if (eBot < 0 || eTop < eBot)
+                            return;
+                        float y0 = static_cast<float>(eBot);
+                        float y1 = static_cast<float>(eTop + stride);
+                        BlockType sideType = (eTop >= 270) ? BlockType::Heavenstone : ((eTop <= Setting::hellCanyonRimY) ? BlockType::Basalt : BlockType::Stone);
+                        if (isXAxis)
+                            emitSideQuadX(outVertices, borderCoord, y0, y1, minZ, maxZ, isBackFace, sideType);
+                        else
+                            emitSideQuadZ(outVertices, borderCoord, minX, maxX, y0, y1, isBackFace, sideType);
+                    };
+
+                    for (int y = span.bottomY; y <= span.topY; y += stride)
+                    {
+                        bool neighborCovered = false;
+                        for (const auto &nSpan : nCol.spans)
+                        {
+                            if (y >= nSpan.bottomY && y <= nSpan.topY)
+                            {
+                                neighborCovered = true;
+                                break;
+                            }
+                        }
+
+                        if (!neighborCovered)
+                        {
+                            if (exposedBot == -1)
+                                exposedBot = y;
+                            exposedTop = y;
+                        }
+                        else if (exposedBot != -1)
+                        {
+                            closeExposed(exposedBot, exposedTop);
+                            exposedBot = -1;
+                            exposedTop = -1;
+                        }
+                    }
+
+                    if (exposedBot != -1)
+                    {
+                        closeExposed(exposedBot, exposedTop);
+                    }
+                };
+
+                // -X face
+                emitSideAgainstNeighbor(nNX, minX, true, true);
+                // +X face
+                emitSideAgainstNeighbor(nPX, maxX, true, false);
+                // -Z face
+                emitSideAgainstNeighbor(nNZ, minZ, false, true);
+                // +Z face
+                emitSideAgainstNeighbor(nPZ, maxZ, false, false);
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Phase 3: LOD 3, 4, 5 (Analytical Multi-Span Mesher) — Fully Optimized
+// ─────────────────────────────────────────────────────────────────────────────
+
+void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float> &outVertices)
+{
+    const int level = std::clamp(req.level, 3, 5);
+    const int covChunks = 1 << (level - 1);       // LOD3: 4 chunks, LOD4: 8 chunks, LOD5: 16 chunks
+    const int stride = 1 << (level - 1);          // LOD3: 4 blocks, LOD4: 8 blocks, LOD5: 16 blocks
+    constexpr int GRID_SIZE = 16;                 // 16x16 sample cells per tile
+    constexpr int kMaxWallDrop = 64;              // Max skirt drop height clamping
+    const int tileWidthBlocks = covChunks * Chunk::SIZE;
+
+    const int baseWorldX = req.tileX * tileWidthBlocks;
+    const int baseWorldZ = req.tileZ * tileWidthBlocks;
+
+    // Pre-query Heaven seeds overlapping this tile
+    std::vector<FeatureSeed> tileHeavenSeeds;
+    findCandidateHeavenSeeds(static_cast<float>(baseWorldX),
+                             static_cast<float>(baseWorldX + tileWidthBlocks),
+                             static_cast<float>(baseWorldZ),
+                             static_cast<float>(baseWorldZ + tileWidthBlocks),
+                             tileHeavenSeeds);
+
+    // Fast analytical column sampler
+    auto sampleAnalyticalColumn = [&](int wx, int wz) -> LODColumn
+    {
+        LODColumn col;
+
+        // 1. Tier 1: Hell Floor
+        const int hellTop = TerrainGenerator::sampleHellFloorAt(wx, wz);
+        const BlockType hellType = TerrainGenerator::sampleBlockAt(wx, wz, hellTop);
+        col.spans.push_back({hellTop, 0, hellType, false, true});
+
+        // 2. Tier 2: Continent (Plateau Body Slab, skipping hourglass stem)
+        const int contTop = TerrainGenerator::sampleContinentHeightAt(wx, wz);
+        if (contTop > 0)
+        {
+            const int contBot = TerrainGenerator::sampleContinentBodyBottomAt(wx, wz);
+            if (contTop >= contBot)
+            {
+                const BlockType contType = TerrainGenerator::sampleBlockAt(wx, wz, contTop);
+                col.spans.push_back({contTop, contBot, contType, true, true});
+            }
+        }
+
+        // 3. Tier 3: Heaven Floating Islands
+        for (const auto &s : tileHeavenSeeds)
+        {
+            const int maxIslets = (level >= 4) ? 1 : (1 + s.subIsletCount);
+            for (int i = 0; i < maxIslets; ++i)
+            {
+                IslandSlice slice = TerrainGenerator::evaluateIslandSlice(static_cast<float>(wx), static_cast<float>(wz), s, i);
+                if (slice.valid)
+                {
+                    const int hTop = std::clamp(static_cast<int>(slice.topY), 280, Chunk::HEIGHT - 1);
+                    const int hBot = std::clamp(static_cast<int>(slice.botY), 280, hTop);
+
+                    BlockType hType = BlockType::Grass;
+                    if (level == 3 && slice.isAnchorPeak)
+                    {
+                        hType = BlockType::Crystal;
+                    }
+                    col.spans.push_back({hTop, hBot, hType, true, true});
+                }
+            }
+        }
+
+        return col;
+    };
+
+    // Pre-sample grid of 16x16 columns
+    LODColumn grid[GRID_SIZE][GRID_SIZE];
+    for (int lx = 0; lx < GRID_SIZE; ++lx)
+    {
+        for (int lz = 0; lz < GRID_SIZE; ++lz)
+        {
+            grid[lx][lz] = sampleAnalyticalColumn(baseWorldX + lx * stride, baseWorldZ + lz * stride);
+        }
+    }
+
+    auto getNeighbor = [&](int gx, int gz) -> LODColumn
+    {
+        if (gx >= 0 && gx < GRID_SIZE && gz >= 0 && gz < GRID_SIZE)
+            return grid[gx][gz];
+        return sampleAnalyticalColumn(baseWorldX + gx * stride, baseWorldZ + gz * stride);
+    };
+
+    // Emit top caps, bottom caps, and connecting skirts with clamping
+    for (int lx = 0; lx < GRID_SIZE; ++lx)
+    {
+        const float minX = static_cast<float>(baseWorldX + lx * stride);
+        const float maxX = minX + static_cast<float>(stride);
+
+        for (int lz = 0; lz < GRID_SIZE; ++lz)
+        {
+            const float minZ = static_cast<float>(baseWorldZ + lz * stride);
+            const float maxZ = minZ + static_cast<float>(stride);
+
+            const LODColumn &col = grid[lx][lz];
+            if (col.spans.empty())
+                continue;
+
+            const LODColumn nNX = getNeighbor(lx - 1, lz);
+            const LODColumn nPX = getNeighbor(lx + 1, lz);
+            const LODColumn nNZ = getNeighbor(lx, lz - 1);
+            const LODColumn nPZ = getNeighbor(lx, lz + 1);
+
+            for (const auto &span : col.spans)
+            {
+                const float topY = static_cast<float>(span.topY);
+                const float botY = static_cast<float>(span.bottomY);
+
+                // Top Cap
+                emitTopQuad(outVertices, minX, maxX, minZ, maxZ, topY, span.surfaceType);
+
+                // Bottom Cap (for floating continent and heaven tiers)
+                if (span.needsBottomCap)
+                {
+                    BlockType botType = (span.bottomY >= 270) ? BlockType::Heavenstone : BlockType::Stone;
+                    emitBottomQuad(outVertices, minX, maxX, minZ, maxZ, botY, botType);
+                }
+
+                // Helper to emit watertight skirts against neighbor
+                auto emitSkirtsAgainstNeighbor = [&](const LODColumn &nCol, float borderCoord, bool isXAxis, bool isBackFace)
+                {
+                    const LODSpan *matchingSpan = nullptr;
+                    for (const auto &nSpan : nCol.spans)
+                    {
+                        if (span.bottomY == 0 && nSpan.bottomY == 0)
+                        {
+                            matchingSpan = &nSpan;
+                            break;
+                        }
+                        else if (span.bottomY > 0 && span.topY < 270 && nSpan.bottomY > 0 && nSpan.topY < 270)
+                        {
+                            matchingSpan = &nSpan;
+                            break;
+                        }
+                        else if (span.bottomY >= 270 && nSpan.bottomY >= 270)
+                        {
+                            matchingSpan = &nSpan;
+                            break;
+                        }
+                    }
+
+                    if (matchingSpan)
+                    {
+                        if (span.topY > matchingSpan->topY)
+                        {
+                            const int dropY = std::max(matchingSpan->topY, span.topY - kMaxWallDrop);
+                            BlockType sideType = (span.topY >= 270) ? BlockType::Heavenstone : ((span.topY <= Setting::hellCanyonRimY) ? BlockType::Basalt : BlockType::Stone);
+                            if (isXAxis)
+                                emitSideQuadX(outVertices, borderCoord, static_cast<float>(dropY), topY, minZ, maxZ, isBackFace, sideType);
+                            else
+                                emitSideQuadZ(outVertices, borderCoord, minX, maxX, static_cast<float>(dropY), topY, isBackFace, sideType);
+                        }
+
+                        if (span.needsBottomCap && span.bottomY < matchingSpan->bottomY)
+                        {
+                            const int riseY = std::min(matchingSpan->bottomY, span.bottomY + kMaxWallDrop);
+                            BlockType sideType = (span.bottomY >= 270) ? BlockType::Heavenstone : BlockType::Stone;
+                            if (isXAxis)
+                                emitSideQuadX(outVertices, borderCoord, botY, static_cast<float>(riseY), minZ, maxZ, isBackFace, sideType);
+                            else
+                                emitSideQuadZ(outVertices, borderCoord, minX, maxX, botY, static_cast<float>(riseY), isBackFace, sideType);
+                        }
+                    }
+                    else
+                    {
+                        const int dropY = std::max(span.bottomY, span.topY - kMaxWallDrop);
+                        BlockType sideType = (span.bottomY >= 270) ? BlockType::Heavenstone : BlockType::Stone;
+                        if (isXAxis)
+                            emitSideQuadX(outVertices, borderCoord, static_cast<float>(dropY), topY, minZ, maxZ, isBackFace, sideType);
+                        else
+                            emitSideQuadZ(outVertices, borderCoord, minX, maxX, static_cast<float>(dropY), topY, isBackFace, sideType);
+                    }
+                };
+
+                emitSkirtsAgainstNeighbor(nNX, minX, true, true);
+                emitSkirtsAgainstNeighbor(nPX, maxX, true, false);
+                emitSkirtsAgainstNeighbor(nNZ, minZ, false, true);
+                emitSkirtsAgainstNeighbor(nPZ, maxZ, false, false);
+            }
+        }
+    }
 }
