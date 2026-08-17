@@ -8,189 +8,190 @@
 #include <algorithm>
 #include <cmath>
 
-namespace {
-
-// Push 1 vertex to the vertex buffer: [x, y, z, u, v, textureLayer, light]
-inline void pushVertex(std::vector<float> &vertexBuffer, float x,
-                       float y, float z, float u, float v,
-                       float textureLayer, float light)
+namespace
 {
-    vertexBuffer.push_back(x);
-    vertexBuffer.push_back(y);
-    vertexBuffer.push_back(z);
-    vertexBuffer.push_back(u);
-    vertexBuffer.push_back(v);
-    vertexBuffer.push_back(textureLayer);
-    vertexBuffer.push_back(light);
-}
 
-// Select texture layer based on block type, axis (0=X, 1=Y, 2=Z), and face orientation
-inline int getTextureLayerForFace(BlockType blockType, int faceAxis, bool isBackFace)
-{
-    if (blockType == BlockType::Grass)
+    // Push 1 vertex to the vertex buffer: [x, y, z, u, v, textureLayer, light]
+    inline void pushVertex(std::vector<float> &vertexBuffer, float x,
+                           float y, float z, float u, float v,
+                           float textureLayer, float light)
     {
-        if (faceAxis == 1)
-            return isBackFace ? 2 : 0; // Y-axis: top=0 (grass), bottom=2 (dirt)
-        return 1;                    // side = layer 1
+        vertexBuffer.push_back(x);
+        vertexBuffer.push_back(y);
+        vertexBuffer.push_back(z);
+        vertexBuffer.push_back(u);
+        vertexBuffer.push_back(v);
+        vertexBuffer.push_back(textureLayer);
+        vertexBuffer.push_back(light);
     }
-    if (blockType == BlockType::Dirt)
-        return 2;
-    if (blockType == BlockType::Stone)
-        return 3;
-    if (blockType == BlockType::Sand)
-        return 4;
-    if (blockType == BlockType::Basalt)
-        return 5;
-    if (blockType == BlockType::Lava)
-        return 6;
-    if (blockType == BlockType::Obsidian)
-        return 7;
-    if (blockType == BlockType::Ash)
-        return 8;
-    if (blockType == BlockType::Cinder)
-        return 9;
-    if (blockType == BlockType::Heavenstone)
-        return 10;
-    if (blockType == BlockType::Crystal)
-        return 11;
-    return 0;
-}
 
-// Emit horizontal top quad facing +Y
-void emitTopQuad(std::vector<float> &vertexBuffer, float minX, float maxX,
-                 float minZ, float maxZ, float y, BlockType blockType)
-{
-    const float layer = (float)getTextureLayerForFace(blockType, 1, false);
-    constexpr float light = 1.0f;
-    const float u0 = minX, v0 = minZ;
-    const float u1 = maxX, v1 = maxZ;
-
-    // CCW: (p0, p1, p2) and (p0, p2, p3)
-    pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
-    pushVertex(vertexBuffer, maxX, y, maxZ, u1, v1, layer, light);
-    pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
-
-    pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
-    pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
-    pushVertex(vertexBuffer, minX, y, minZ, u0, v0, layer, light);
-}
-
-// Emit horizontal bottom quad facing -Y
-void emitBottomQuad(std::vector<float> &vertexBuffer, float minX, float maxX,
-                    float minZ, float maxZ, float y, BlockType blockType)
-{
-    const float layer = (float)getTextureLayerForFace(blockType, 1, true);
-    constexpr float light = 0.55f;
-    const float u0 = minX, v0 = minZ;
-    const float u1 = maxX, v1 = maxZ;
-
-    // CCW looking from below (-Y): (p0, p3, p2) and (p0, p2, p1)
-    pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
-    pushVertex(vertexBuffer, minX, y, minZ, u0, v0, layer, light);
-    pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
-
-    pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
-    pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
-    pushVertex(vertexBuffer, maxX, y, maxZ, u1, v1, layer, light);
-}
-
-// Emit vertical quad along X plane (facing +X if !isBackFace, -X if isBackFace)
-void emitSideQuadX(std::vector<float> &vertexBuffer, float x, float minY, float maxY,
-                   float minZ, float maxZ, bool isBackFace, BlockType blockType)
-{
-    if (minY >= maxY)
-        return;
-
-    const float layer = (float)getTextureLayerForFace(blockType, 0, isBackFace);
-    constexpr float light = 0.80f;
-    const float u0 = minZ, v0 = minY;
-    const float u1 = maxZ, v1 = maxY;
-
-    if (!isBackFace)
+    // Select texture layer based on block type, axis (0=X, 1=Y, 2=Z), and face orientation
+    inline int getTextureLayerForFace(BlockType blockType, int faceAxis, bool isBackFace)
     {
-        // +X normal
-        pushVertex(vertexBuffer, x, minY, minZ, u0, v0, layer, light);
-        pushVertex(vertexBuffer, x, maxY, minZ, u0, v1, layer, light);
-        pushVertex(vertexBuffer, x, maxY, maxZ, u1, v1, layer, light);
-
-        pushVertex(vertexBuffer, x, minY, minZ, u0, v0, layer, light);
-        pushVertex(vertexBuffer, x, maxY, maxZ, u1, v1, layer, light);
-        pushVertex(vertexBuffer, x, minY, maxZ, u1, v0, layer, light);
-    }
-    else
-    {
-        // -X normal
-        pushVertex(vertexBuffer, x, minY, maxZ, u0, v0, layer, light);
-        pushVertex(vertexBuffer, x, maxY, maxZ, u0, v1, layer, light);
-        pushVertex(vertexBuffer, x, maxY, minZ, u1, v1, layer, light);
-
-        pushVertex(vertexBuffer, x, minY, maxZ, u0, v0, layer, light);
-        pushVertex(vertexBuffer, x, maxY, minZ, u1, v1, layer, light);
-        pushVertex(vertexBuffer, x, minY, minZ, u1, v0, layer, light);
-    }
-}
-
-// Emit vertical quad along Z plane (facing +Z if !isBackFace, -Z if isBackFace)
-void emitSideQuadZ(std::vector<float> &vertexBuffer, float z, float minX, float maxX,
-                   float minY, float maxY, bool isBackFace, BlockType blockType)
-{
-    if (minY >= maxY)
-        return;
-
-    const float layer = (float)getTextureLayerForFace(blockType, 2, isBackFace);
-    constexpr float light = 0.70f;
-    const float u0 = minX, v0 = minY;
-    const float u1 = maxX, v1 = maxY;
-
-    if (!isBackFace)
-    {
-        // +Z normal
-        pushVertex(vertexBuffer, maxX, minY, z, u0, v0, layer, light);
-        pushVertex(vertexBuffer, maxX, maxY, z, u0, v1, layer, light);
-        pushVertex(vertexBuffer, minX, maxY, z, u1, v1, layer, light);
-
-        pushVertex(vertexBuffer, maxX, minY, z, u0, v0, layer, light);
-        pushVertex(vertexBuffer, minX, maxY, z, u1, v1, layer, light);
-        pushVertex(vertexBuffer, minX, minY, z, u1, v0, layer, light);
-    }
-    else
-    {
-        // -Z normal
-        pushVertex(vertexBuffer, minX, minY, z, u0, v0, layer, light);
-        pushVertex(vertexBuffer, minX, maxY, z, u0, v1, layer, light);
-        pushVertex(vertexBuffer, maxX, maxY, z, u1, v1, layer, light);
-
-        pushVertex(vertexBuffer, minX, minY, z, u0, v0, layer, light);
-        pushVertex(vertexBuffer, maxX, maxY, z, u1, v1, layer, light);
-        pushVertex(vertexBuffer, maxX, minY, z, u1, v0, layer, light);
-    }
-}
-
-// Find candidate Heaven seeds overlapping a given world AABB
-void findCandidateHeavenSeeds(float minX, float maxX, float minZ, float maxZ,
-                              std::vector<FeatureSeed> &outSeeds)
-{
-    outSeeds.clear();
-    constexpr float g = Setting::heavenClusterSpacing;
-    constexpr float maxClusterRadius = 220.0f; // max giant island radius + satellite offsets + warp
-
-    int minCellX = static_cast<int>(std::floor((minX - maxClusterRadius) / g));
-    int maxCellX = static_cast<int>(std::floor((maxX + maxClusterRadius) / g));
-    int minCellZ = static_cast<int>(std::floor((minZ - maxClusterRadius) / g));
-    int maxCellZ = static_cast<int>(std::floor((maxZ + maxClusterRadius) / g));
-
-    for (int cx = minCellX; cx <= maxCellX; ++cx)
-    {
-        for (int cz = minCellZ; cz <= maxCellZ; ++cz)
+        if (blockType == BlockType::Grass)
         {
-            FeatureSeed s = TerrainGenerator::generateHeavenSeed(cx, cz);
-            if (s.exists)
+            if (faceAxis == 1)
+                return isBackFace ? 2 : 0; // Y-axis: top=0 (grass), bottom=2 (dirt)
+            return 1;                      // side = layer 1
+        }
+        if (blockType == BlockType::Dirt)
+            return 2;
+        if (blockType == BlockType::Stone)
+            return 3;
+        if (blockType == BlockType::Sand)
+            return 4;
+        if (blockType == BlockType::Basalt)
+            return 5;
+        if (blockType == BlockType::Lava)
+            return 6;
+        if (blockType == BlockType::Obsidian)
+            return 7;
+        if (blockType == BlockType::Ash)
+            return 8;
+        if (blockType == BlockType::Cinder)
+            return 9;
+        if (blockType == BlockType::Heavenstone)
+            return 10;
+        if (blockType == BlockType::Crystal)
+            return 11;
+        return 0;
+    }
+
+    // Emit horizontal top quad facing +Y
+    void emitTopQuad(std::vector<float> &vertexBuffer, float minX, float maxX,
+                     float minZ, float maxZ, float y, BlockType blockType)
+    {
+        const float layer = (float)getTextureLayerForFace(blockType, 1, false);
+        constexpr float light = 1.0f;
+        const float u0 = minX, v0 = minZ;
+        const float u1 = maxX, v1 = maxZ;
+
+        // CCW: (p0, p1, p2) and (p0, p2, p3)
+        pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
+        pushVertex(vertexBuffer, maxX, y, maxZ, u1, v1, layer, light);
+        pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
+
+        pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
+        pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
+        pushVertex(vertexBuffer, minX, y, minZ, u0, v0, layer, light);
+    }
+
+    // Emit horizontal bottom quad facing -Y
+    void emitBottomQuad(std::vector<float> &vertexBuffer, float minX, float maxX,
+                        float minZ, float maxZ, float y, BlockType blockType)
+    {
+        const float layer = (float)getTextureLayerForFace(blockType, 1, true);
+        constexpr float light = 0.55f;
+        const float u0 = minX, v0 = minZ;
+        const float u1 = maxX, v1 = maxZ;
+
+        // CCW looking from below (-Y): (p0, p3, p2) and (p0, p2, p1)
+        pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
+        pushVertex(vertexBuffer, minX, y, minZ, u0, v0, layer, light);
+        pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
+
+        pushVertex(vertexBuffer, minX, y, maxZ, u0, v1, layer, light);
+        pushVertex(vertexBuffer, maxX, y, minZ, u1, v0, layer, light);
+        pushVertex(vertexBuffer, maxX, y, maxZ, u1, v1, layer, light);
+    }
+
+    // Emit vertical quad along X plane (facing +X if !isBackFace, -X if isBackFace)
+    void emitSideQuadX(std::vector<float> &vertexBuffer, float x, float minY, float maxY,
+                       float minZ, float maxZ, bool isBackFace, BlockType blockType)
+    {
+        if (minY >= maxY)
+            return;
+
+        const float layer = (float)getTextureLayerForFace(blockType, 0, isBackFace);
+        constexpr float light = 0.80f;
+        const float u0 = minZ, v0 = minY;
+        const float u1 = maxZ, v1 = maxY;
+
+        if (!isBackFace)
+        {
+            // +X normal
+            pushVertex(vertexBuffer, x, minY, minZ, u0, v0, layer, light);
+            pushVertex(vertexBuffer, x, maxY, minZ, u0, v1, layer, light);
+            pushVertex(vertexBuffer, x, maxY, maxZ, u1, v1, layer, light);
+
+            pushVertex(vertexBuffer, x, minY, minZ, u0, v0, layer, light);
+            pushVertex(vertexBuffer, x, maxY, maxZ, u1, v1, layer, light);
+            pushVertex(vertexBuffer, x, minY, maxZ, u1, v0, layer, light);
+        }
+        else
+        {
+            // -X normal
+            pushVertex(vertexBuffer, x, minY, maxZ, u0, v0, layer, light);
+            pushVertex(vertexBuffer, x, maxY, maxZ, u0, v1, layer, light);
+            pushVertex(vertexBuffer, x, maxY, minZ, u1, v1, layer, light);
+
+            pushVertex(vertexBuffer, x, minY, maxZ, u0, v0, layer, light);
+            pushVertex(vertexBuffer, x, maxY, minZ, u1, v1, layer, light);
+            pushVertex(vertexBuffer, x, minY, minZ, u1, v0, layer, light);
+        }
+    }
+
+    // Emit vertical quad along Z plane (facing +Z if !isBackFace, -Z if isBackFace)
+    void emitSideQuadZ(std::vector<float> &vertexBuffer, float z, float minX, float maxX,
+                       float minY, float maxY, bool isBackFace, BlockType blockType)
+    {
+        if (minY >= maxY)
+            return;
+
+        const float layer = (float)getTextureLayerForFace(blockType, 2, isBackFace);
+        constexpr float light = 0.70f;
+        const float u0 = minX, v0 = minY;
+        const float u1 = maxX, v1 = maxY;
+
+        if (!isBackFace)
+        {
+            // +Z normal
+            pushVertex(vertexBuffer, maxX, minY, z, u0, v0, layer, light);
+            pushVertex(vertexBuffer, maxX, maxY, z, u0, v1, layer, light);
+            pushVertex(vertexBuffer, minX, maxY, z, u1, v1, layer, light);
+
+            pushVertex(vertexBuffer, maxX, minY, z, u0, v0, layer, light);
+            pushVertex(vertexBuffer, minX, maxY, z, u1, v1, layer, light);
+            pushVertex(vertexBuffer, minX, minY, z, u1, v0, layer, light);
+        }
+        else
+        {
+            // -Z normal
+            pushVertex(vertexBuffer, minX, minY, z, u0, v0, layer, light);
+            pushVertex(vertexBuffer, minX, maxY, z, u0, v1, layer, light);
+            pushVertex(vertexBuffer, maxX, maxY, z, u1, v1, layer, light);
+
+            pushVertex(vertexBuffer, minX, minY, z, u0, v0, layer, light);
+            pushVertex(vertexBuffer, maxX, maxY, z, u1, v1, layer, light);
+            pushVertex(vertexBuffer, maxX, minY, z, u1, v0, layer, light);
+        }
+    }
+
+    // Find candidate Heaven seeds overlapping a given world AABB
+    void findCandidateHeavenSeeds(float minX, float maxX, float minZ, float maxZ,
+                                  std::vector<FeatureSeed> &outSeeds)
+    {
+        outSeeds.clear();
+        constexpr float g = Setting::heavenClusterSpacing;
+        constexpr float maxClusterRadius = 220.0f; // max giant island radius + satellite offsets + warp
+
+        int minCellX = static_cast<int>(std::floor((minX - maxClusterRadius) / g));
+        int maxCellX = static_cast<int>(std::floor((maxX + maxClusterRadius) / g));
+        int minCellZ = static_cast<int>(std::floor((minZ - maxClusterRadius) / g));
+        int maxCellZ = static_cast<int>(std::floor((maxZ + maxClusterRadius) / g));
+
+        for (int cx = minCellX; cx <= maxCellX; ++cx)
+        {
+            for (int cz = minCellZ; cz <= maxCellZ; ++cz)
             {
-                outSeeds.push_back(s);
+                FeatureSeed s = TerrainGenerator::generateHeavenSeed(cx, cz);
+                if (s.exists)
+                {
+                    outSeeds.push_back(s);
+                }
             }
         }
     }
-}
 
 } // anonymous namespace
 
@@ -214,9 +215,9 @@ void LODMesher::build(const LODMeshRequest &req, std::vector<float> &outVertices
 void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &outVertices)
 {
     const int level = std::clamp(req.level, 1, 2);
-    const int covChunks = 1 << (level - 1);       // 1 chunk (LOD1) or 2 chunks (LOD2)
-    const int stride = level;                     // 1 block (LOD1) or 2 blocks (LOD2)
-    constexpr int GRID_SIZE = 16;                 // 16x16 sample cells per tile
+    const int covChunks = 1 << (level - 1); // 1 chunk (LOD1) or 2 chunks (LOD2)
+    const int stride = level;               // 1 block (LOD1) or 2 blocks (LOD2)
+    constexpr int GRID_SIZE = 16;           // 16x16 sample cells per tile
     const int tileWidthBlocks = covChunks * Chunk::SIZE;
 
     const int baseWorldX = req.tileX * tileWidthBlocks;
@@ -236,7 +237,7 @@ void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &out
         LODColumn col;
 
         const int floorH = TerrainGenerator::sampleHellFloorAt(wx, wz);
-        const int contH  = TerrainGenerator::sampleContinentHeightAt(wx, wz);
+        const int contH = TerrainGenerator::sampleContinentHeightAt(wx, wz);
         const int contBot = (contH > 0) ? TerrainGenerator::sampleContinentBodyBottomAt(wx, wz) : 0;
 
         // Tier 1 Hell Floor span: 0..floorH
@@ -354,6 +355,53 @@ void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &out
                 const float topY = static_cast<float>(span.topY + stride);
                 const float botY = static_cast<float>(span.bottomY);
 
+                // Force a complete wall on the actual tile boundary.
+                //
+                // At a real tile boundary we must not trust the synthetic neighbor
+                // generated by getNeighbor(). The adjacent tile may be using a
+                // different LOD/stride.
+                //
+                // Full wall guarantees that the LOD transition has overlapping
+                // geometry instead of relying on neighbor coverage.
+                auto emitFullBoundaryWall =
+                    [&](float borderCoord, bool isXAxis, bool isBackFace)
+                {
+                    if (botY >= topY)
+                        return;
+
+                    BlockType sideType =
+                        (span.topY >= 270)
+                            ? BlockType::Heavenstone
+                            : ((span.topY <= Setting::hellCanyonRimY)
+                                   ? BlockType::Basalt
+                                   : BlockType::Stone);
+
+                    if (isXAxis)
+                    {
+                        emitSideQuadX(
+                            outVertices,
+                            borderCoord,
+                            botY,
+                            topY,
+                            minZ,
+                            maxZ,
+                            isBackFace,
+                            sideType);
+                    }
+                    else
+                    {
+                        emitSideQuadZ(
+                            outVertices,
+                            borderCoord,
+                            minX,
+                            maxX,
+                            botY,
+                            topY,
+                            isBackFace,
+                            sideType);
+                    }
+                };
+
                 // Top quad
                 emitTopQuad(outVertices, minX, maxX, minZ, maxZ, topY, span.surfaceType);
 
@@ -415,14 +463,45 @@ void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &out
                     }
                 };
 
-                // -X face
-                emitSideAgainstNeighbor(nNX, minX, true, true);
-                // +X face
-                emitSideAgainstNeighbor(nPX, maxX, true, false);
-                // -Z face
-                emitSideAgainstNeighbor(nNZ, minZ, false, true);
-                // +Z face
-                emitSideAgainstNeighbor(nPZ, maxZ, false, false);
+                // -X
+                if (lx == 0)
+                {
+                    emitFullBoundaryWall(minX, true, true);
+                }
+                else
+                {
+                    emitSideAgainstNeighbor(nNX, minX, true, true);
+                }
+
+                // +X
+                if (lx == GRID_SIZE - 1)
+                {
+                    emitFullBoundaryWall(maxX, true, false);
+                }
+                else
+                {
+                    emitSideAgainstNeighbor(nPX, maxX, true, false);
+                }
+
+                // -Z
+                if (lz == 0)
+                {
+                    emitFullBoundaryWall(minZ, false, true);
+                }
+                else
+                {
+                    emitSideAgainstNeighbor(nNZ, minZ, false, true);
+                }
+
+                // +Z
+                if (lz == GRID_SIZE - 1)
+                {
+                    emitFullBoundaryWall(maxZ, false, false);
+                }
+                else
+                {
+                    emitSideAgainstNeighbor(nPZ, maxZ, false, false);
+                }
             }
         }
     }
@@ -435,10 +514,10 @@ void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &out
 void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float> &outVertices)
 {
     const int level = std::clamp(req.level, 3, 5);
-    const int covChunks = 1 << (level - 1);       // LOD3: 4 chunks, LOD4: 8 chunks, LOD5: 16 chunks
-    const int stride = 1 << (level - 1);          // LOD3: 4 blocks, LOD4: 8 blocks, LOD5: 16 blocks
-    constexpr int GRID_SIZE = 16;                 // 16x16 sample cells per tile
-    constexpr int kMaxWallDrop = 64;              // Max skirt drop height clamping
+    const int covChunks = 1 << (level - 1); // LOD3: 4 chunks, LOD4: 8 chunks, LOD5: 16 chunks
+    const int stride = 1 << (level - 1);    // LOD3: 4 blocks, LOD4: 8 blocks, LOD5: 16 blocks
+    constexpr int GRID_SIZE = 16;           // 16x16 sample cells per tile
+    constexpr int kMaxWallDrop = 64;        // Max skirt drop height clamping
     const int tileWidthBlocks = covChunks * Chunk::SIZE;
 
     const int baseWorldX = req.tileX * tileWidthBlocks;
@@ -541,6 +620,50 @@ void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float>
                 const float topY = static_cast<float>(span.topY);
                 const float botY = static_cast<float>(span.bottomY);
 
+                // Force a complete wall on the real tile boundary.
+                //
+                // Do not use the synthetic neighbor on a tile edge.
+                // The adjacent tile may have a different LOD/stride, so
+                // neighbor span matching is not reliable there.
+                auto emitFullBoundaryWall =
+                    [&](float borderCoord, bool isXAxis, bool isBackFace)
+                {
+                    if (botY >= topY)
+                        return;
+
+                    BlockType sideType =
+                        (span.topY >= 270)
+                            ? BlockType::Heavenstone
+                            : ((span.topY <= Setting::hellCanyonRimY)
+                                   ? BlockType::Basalt
+                                   : BlockType::Stone);
+
+                    if (isXAxis)
+                    {
+                        emitSideQuadX(
+                            outVertices,
+                            borderCoord,
+                            botY,
+                            topY,
+                            minZ,
+                            maxZ,
+                            isBackFace,
+                            sideType);
+                    }
+                    else
+                    {
+                        emitSideQuadZ(
+                            outVertices,
+                            borderCoord,
+                            minX,
+                            maxX,
+                            botY,
+                            topY,
+                            isBackFace,
+                            sideType);
+                    }
+                };
+
                 // Top Cap
                 emitTopQuad(outVertices, minX, maxX, minZ, maxZ, topY, span.surfaceType);
 
@@ -607,10 +730,45 @@ void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float>
                     }
                 };
 
-                emitSkirtsAgainstNeighbor(nNX, minX, true, true);
-                emitSkirtsAgainstNeighbor(nPX, maxX, true, false);
-                emitSkirtsAgainstNeighbor(nNZ, minZ, false, true);
-                emitSkirtsAgainstNeighbor(nPZ, maxZ, false, false);
+                // -X
+                if (lx == 0)
+                {
+                    emitFullBoundaryWall(minX, true, true);
+                }
+                else
+                {
+                    emitSkirtsAgainstNeighbor(nNX, minX, true, true);
+                }
+
+                // +X
+                if (lx == GRID_SIZE - 1)
+                {
+                    emitFullBoundaryWall(maxX, true, false);
+                }
+                else
+                {
+                    emitSkirtsAgainstNeighbor(nPX, maxX, true, false);
+                }
+
+                // -Z
+                if (lz == 0)
+                {
+                    emitFullBoundaryWall(minZ, false, true);
+                }
+                else
+                {
+                    emitSkirtsAgainstNeighbor(nNZ, minZ, false, true);
+                }
+
+                // +Z
+                if (lz == GRID_SIZE - 1)
+                {
+                    emitFullBoundaryWall(maxZ, false, false);
+                }
+                else
+                {
+                    emitSkirtsAgainstNeighbor(nPZ, maxZ, false, false);
+                }
             }
         }
     }

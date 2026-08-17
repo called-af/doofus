@@ -343,8 +343,8 @@ public:
   // PLAYER
   // ======================
 
-  static inline float moveSpeed = 500.0f;
-  static inline float jumpForce = 100.0f;
+  static inline float moveSpeed = 100.0f;
+  static inline float jumpForce = 80.0f;
   static inline float gravity = -20.0f;
   static inline float reachDistance = 6.0f;
 

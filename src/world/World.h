@@ -143,6 +143,15 @@ private:
                              glm::vec3 cameraPos, glm::vec3 cameraFront,
                              const Frustum &frustum, bool isLoading);
 
+    // Hierarchical LOD Quadtree selection & fallback helpers
+    void collectLODTiles(int tx, int tz, int level,
+                         int playerChunkX, int playerChunkZ,
+                         const glm::vec3 &cameraPos, const Frustum &frustum,
+                         std::vector<LODTile*> &outTiles);
+
+    bool isLODSubtreeReady(int tx, int tz, int level,
+                           int playerChunkX, int playerChunkZ) const;
+
     // Update the LOD tile registry every frame
     void updateLOD(int playerChunkX, int playerChunkZ, glm::vec3 cameraPos,
                    glm::vec3 cameraFront, const Frustum& frustum,
