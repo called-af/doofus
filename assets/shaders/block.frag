@@ -13,6 +13,7 @@ in float vSpawnT;   // 0..1 spawn animation progress
 
 out vec4 FragColor;
 
+uniform mat4 lightSpaceMatrix;
 uniform sampler2DArray atlas;
 uniform sampler2D      shadowMap;
 
@@ -29,51 +30,46 @@ uniform int   uShadowsEnabled;
 uniform int   uIsLOD;
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  PCF Shadow — smooth, follows object shape, elongates based on sun position
-//
-//  PCF (Percentage Closer Filtering): samples depth in a 3×3 neighbourhood,
-//  averages the results. Produces shadow with soft edges that follow
-//  geometry shape, not pixelated per texel.
-//
-//  Bias: linear between 0.0003 (top face, NdotL=1) and 0.002 (side face, NdotL=0).
-//  Small but sufficient — shadow sticks tightly to the top surface of blocks.
+//  Normal-Offset Shadow: preserves exact geometric silhouettes (cube edges, curved limbs)
+//  without distortion or acne.
 // ─────────────────────────────────────────────────────────────────────────────
-float calculateShadow(vec4 fragPosLightSpace, float ndotl)
+float calculateShadow(vec3 worldPos, vec3 normal, float ndotl)
 {
-    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    if (ndotl <= 0.0001) return 1.0; // Self-shadowing on faces angled away from sun
+
+    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+    
+    // Shift shadow test position outward along surface normal (avoids acne while keeping box corners sharp)
+    float normalOffset = max(0.06 * (1.0 - ndotl), 0.015);
+    vec3 biasedPos = worldPos + normal * normalOffset;
+    vec4 lightSpacePos = lightSpaceMatrix * vec4(biasedPos, 1.0);
+
+    vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
     projCoords = projCoords * 0.5 + 0.5;
 
     // Outside shadow frustum → no shadow
-    if (projCoords.z > 1.0 ||
+    if (projCoords.z > 1.0 || projCoords.z < 0.0 ||
         projCoords.x < 0.0 || projCoords.x > 1.0 ||
         projCoords.y < 0.0 || projCoords.y > 1.0)
         return 0.0;
 
-    // Linear bias: very small for top face, slightly larger for side faces
-    float bias = mix(0.0003, 0.002, 1.0 - clamp(ndotl, 0.0, 1.0));
+    float currentDepth = projCoords.z - 0.00003;
 
-    // PCF 2×2: sample 4 points around projCoords, average the results.
-    // Combined with GL_LINEAR texture filtering, this produces extremely smooth
-    // shadows while reducing depth lookups by 55%.
-    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+    // 4-tap sub-texel filter: preserves crisp boxy corners and smooth arcs without blurring
     float shadow = 0.0;
-    for (int x = 0; x <= 1; ++x) {
-        for (int y = 0; y <= 1; ++y) {
-            float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
-            shadow += (projCoords.z - bias > pcfDepth) ? 1.0 : 0.0;
-        }
-    }
-    shadow /= 4.0;
+    vec2 offset = texelSize * 0.45;
+    
+    shadow += (currentDepth > texture(shadowMap, projCoords.xy + vec2(-offset.x, -offset.y)).r) ? 1.0 : 0.0;
+    shadow += (currentDepth > texture(shadowMap, projCoords.xy + vec2( offset.x, -offset.y)).r) ? 1.0 : 0.0;
+    shadow += (currentDepth > texture(shadowMap, projCoords.xy + vec2(-offset.x,  offset.y)).r) ? 1.0 : 0.0;
+    shadow += (currentDepth > texture(shadowMap, projCoords.xy + vec2( offset.x,  offset.y)).r) ? 1.0 : 0.0;
+    shadow *= 0.25;
 
     return shadow;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Phong Specular
-//
-//  reflect(-L, N) → R, kemudian pow(max(dot(V,R), 0), shininess)
-//  For voxel terrain: low shininess (16) and small intensity (0.12)
-//  to avoid a too "plastic" appearance.
 // ─────────────────────────────────────────────────────────────────────────────
 vec3 calcSpecular(vec3 normal, vec3 lightDir, vec3 viewDir, vec3 lightColor)
 {
@@ -97,28 +93,34 @@ void main()
     vec4 texColor = texture(atlas, vec3(fract(TexCoord), TexLayer));
     if (texColor.a < 0.01) discard;
 
+    // Exact geometric face normal computed from derivatives (perfect voxel + slope normals)
+    vec3 geomNormal = normalize(cross(dFdx(FragPos), dFdy(FragPos)));
+    if (!gl_FrontFacing) geomNormal = -geomNormal;
+
+    float ndotl = max(dot(geomNormal, uLightDir), 0.0);
+
     // ─── Shadow ───────────────────────────────────────────────────────────
     const float cameraDistance = length(FragPos - cameraPos);
     float shadow = 0.0;
-    // PCF is nine depth texture reads.  Do it only inside the actual shadow
-    // radius instead of paying that cost for every full-detail fragment.
     if (uIsLOD == 0 && uShadowsEnabled == 1 && cameraDistance <= uShadowDistance) {
-        shadow = calculateShadow(FragPosLightSpace, vNdotL);
+        shadow = calculateShadow(FragPos, geomNormal, ndotl);
+        // Smooth fade out near the max shadow distance edge
+        float fadeStart = uShadowDistance * 0.85;
+        if (cameraDistance > fadeStart) {
+            float fade = 1.0 - clamp((cameraDistance - fadeStart) / (uShadowDistance - fadeStart), 0.0, 1.0);
+            shadow *= fade;
+        }
     }
 
     // ─── Diffuse (Lambert) ────────────────────────────────────────────────
-    // vNdotL already computed in vertex shader
-    vec3 direct = uLightColor * vNdotL * (1.0 - shadow * 0.9);
+    vec3 direct = uLightColor * ndotl * (1.0 - shadow * 0.90);
 
     // ─── Phong Specular ─────────────────────────────────────────────────
-    // Only for full-detail chunks (not LOD) and not for surfaces
-    // facing downward (faceIdx bottom → aLight < 0.60)
     vec3 specular = vec3(0.0);
-    if (uIsLOD == 0 && vNdotL > 0.0 && uShadowsEnabled == 1
+    if (uIsLOD == 0 && ndotl > 0.0 && uShadowsEnabled == 1
         && cameraDistance <= uShadowDistance) {
         vec3 viewDir = normalize(cameraPos - FragPos);
-        specular = calcSpecular(Normal, uLightDir, viewDir, uLightColor);
-        // Reduce specular in shadowed areas
+        specular = calcSpecular(geomNormal, uLightDir, viewDir, uLightColor);
         specular *= (1.0 - shadow);
     }
 

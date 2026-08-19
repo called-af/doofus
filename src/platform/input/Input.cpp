@@ -72,6 +72,7 @@ void Input::handleEvent(SDL_Event& e)
             break;
 
         case SDLK_V:
+        case SDLK_F5:
             v = pressed;
             if (pressed) vPressed = true;
             break;

@@ -23,6 +23,7 @@ Testing/
 # =========================================
 *.o
 *.obj
+!assets/models/*.obj
 *.so
 *.a
 *.lib

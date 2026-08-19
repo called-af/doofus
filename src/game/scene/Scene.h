@@ -79,6 +79,7 @@ private:
     GLint uTime = -1;
     GLint uIsLOD = -1;
     GLint uLodSpawnTime = -1;
+    GLint uUseTexture = -1;
   } shadowUniforms;
 
   struct SkyShaderUniforms {
@@ -90,6 +91,17 @@ private:
     GLint model = -1;
     GLint view = -1;
     GLint projection = -1;
+    GLint lightSpaceMatrix = -1;
+    GLint cameraPos = -1;
+    GLint fogColor = -1;
+    GLint fogStart = -1;
+    GLint fogEnd = -1;
+    GLint uLightDir = -1;
+    GLint uLightColor = -1;
+    GLint uAmbientColor = -1;
+    GLint uShadowDistance = -1;
+    GLint uShadowsEnabled = -1;
+    GLint shadowMap = -1;
   } playerUniforms;
 
   void setupShadowPass();

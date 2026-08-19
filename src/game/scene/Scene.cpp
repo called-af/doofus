@@ -75,6 +75,7 @@ void Scene::init()
     shadowUniforms.uTime = glGetUniformLocation(shadowShader->id, "uTime");
     shadowUniforms.uIsLOD = glGetUniformLocation(shadowShader->id, "uIsLOD");
     shadowUniforms.uLodSpawnTime = glGetUniformLocation(shadowShader->id, "uLodSpawnTime");
+    shadowUniforms.uUseTexture = glGetUniformLocation(shadowShader->id, "uUseTexture");
 
     skyUniforms.invProj = glGetUniformLocation(sky.shader->id, "invProj");
     skyUniforms.invView = glGetUniformLocation(sky.shader->id, "invView");
@@ -82,6 +83,17 @@ void Scene::init()
     playerUniforms.model = glGetUniformLocation(playerShader->id, "model");
     playerUniforms.view = glGetUniformLocation(playerShader->id, "view");
     playerUniforms.projection = glGetUniformLocation(playerShader->id, "projection");
+    playerUniforms.lightSpaceMatrix = glGetUniformLocation(playerShader->id, "lightSpaceMatrix");
+    playerUniforms.cameraPos = glGetUniformLocation(playerShader->id, "cameraPos");
+    playerUniforms.fogColor = glGetUniformLocation(playerShader->id, "fogColor");
+    playerUniforms.fogStart = glGetUniformLocation(playerShader->id, "fogStart");
+    playerUniforms.fogEnd = glGetUniformLocation(playerShader->id, "fogEnd");
+    playerUniforms.uLightDir = glGetUniformLocation(playerShader->id, "uLightDir");
+    playerUniforms.uLightColor = glGetUniformLocation(playerShader->id, "uLightColor");
+    playerUniforms.uAmbientColor = glGetUniformLocation(playerShader->id, "uAmbientColor");
+    playerUniforms.uShadowDistance = glGetUniformLocation(playerShader->id, "uShadowDistance");
+    playerUniforms.uShadowsEnabled = glGetUniformLocation(playerShader->id, "uShadowsEnabled");
+    playerUniforms.shadowMap = glGetUniformLocation(playerShader->id, "shadowMap");
 
     /*
         CAMERA
@@ -306,18 +318,43 @@ void Scene::render()
         PLAYER MODEL
     */
 
-    if (camera.mode != CameraMode::FirstPerson)
+    if (camera.mode != CameraMode::FirstPerson && playerModel)
     {
-        glm::mat4 playerMatrix =
-            glm::translate(glm::mat4(1.0f), playerTransform.position);
-
         playerShader->use();
+
+        // Scale Blockbench model (77.16 units height) to 1.85 blocks tall
+        constexpr float modelScale = 1.85f / 77.16f;
+
+        glm::mat4 playerMatrix = glm::translate(glm::mat4(1.0f), playerTransform.position);
+        // camera.yaw = -90 is forward (-Z). Rotate player model to face camera look direction
+        playerMatrix = glm::rotate(playerMatrix, glm::radians(-camera.yaw - 90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        playerMatrix = glm::scale(playerMatrix, glm::vec3(modelScale));
 
         glUniformMatrix4fv(playerUniforms.model, 1, GL_FALSE, glm::value_ptr(playerMatrix));
         glUniformMatrix4fv(playerUniforms.view, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(playerUniforms.projection, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(playerUniforms.lightSpaceMatrix, 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
+
+        glUniform3f(playerUniforms.cameraPos, camera.position.x, camera.position.y, camera.position.z);
+        glUniform3f(playerUniforms.fogColor, hor.r, hor.g, hor.b);
+        glUniform1f(playerUniforms.fogStart, Setting::getFogStart());
+        glUniform1f(playerUniforms.fogEnd, Setting::getFogEnd());
+
+        glUniform3f(playerUniforms.uLightDir, activeLightDir.x, activeLightDir.y, activeLightDir.z);
+        glUniform3f(playerUniforms.uLightColor, activeLightColor.r, activeLightColor.g, activeLightColor.b);
+        glUniform3f(playerUniforms.uAmbientColor, activeAmbientColor.r, activeAmbientColor.g, activeAmbientColor.b);
+        glUniform1f(playerUniforms.uShadowDistance, (float)Setting::shadowDistance * 16.0f);
+        glUniform1i(playerUniforms.uShadowsEnabled, (Setting::enableShadows && shadowActive) ? 1 : 0);
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
+        glUniform1i(playerUniforms.shadowMap, 1);
+
+        glDisable(GL_CULL_FACE);
 
         playerModel->draw(*playerShader);
+
+        glEnable(GL_CULL_FACE);
     }
 
     /*
@@ -482,20 +519,16 @@ void Scene::renderShadowPass()
     // ── Light view matrix ─────────────────────────────────────────────────────
     // Eye position far along light direction, target = snappedCenter
     glm::mat4 lightView = glm::lookAt(
-        snappedCenter + lightDir * 512.0f,
+        snappedCenter + lightDir * 700.0f,
         snappedCenter,
         up);
 
     // ── Light ortho projection ────────────────────────────────────────────────
-    // near/far must cover the entire world:
-    //   - World height max = 256
-    //   - Light eye = snappedCenter + lightDir*512
-    //   - Farthest fragment from eye ≈ 512 + 256 + buffer
-    //   - Use near=0.1, far=1024 to be safe at all light angles
+    // near/far covers floating islands (up to Y=450) and deep canyons safely
     glm::mat4 lightProjection = glm::ortho(
         -shadowR, shadowR,
         -shadowR, shadowR,
-        0.1f, 1024.0f);
+        1.0f, 1400.0f);
 
     lightSpaceMatrix = lightProjection * lightView;
 
@@ -506,9 +539,7 @@ void Scene::renderShadowPass()
 
     glEnable(GL_DEPTH_TEST);
 
-    // Do NOT cull faces in shadow pass for voxel geometry.
-    // Greedy mesher only emits visible faces — no solid back faces exist.
-    // Using GL_FRONT discards all faces → empty shadow map.
+    // Disable face culling in shadow pass so all double-sided planes/voxels cast shadows
     glDisable(GL_CULL_FACE);
 
     shadowShader->use();
@@ -527,7 +558,24 @@ void Scene::renderShadowPass()
     int playerChunkX = (int)std::floor(playerPos.x / Chunk::SIZE);
     int playerChunkZ = (int)std::floor(playerPos.z / Chunk::SIZE);
 
+    // 1. Draw terrain chunks into shadow map
+    glUniform1i(shadowUniforms.uUseTexture, 0);
     world.drawShadowChunks(lightFrustum, shadowUniforms.uLodSpawnTime, playerChunkX, playerChunkZ, Setting::shadowDistance);
+
+    // 2. Draw entity / player model into shadow map
+    if (playerModel)
+    {
+        constexpr float modelScale = 1.85f / 77.16f;
+        glm::mat4 playerMatrix = glm::translate(glm::mat4(1.0f), playerTransform.position);
+        playerMatrix = glm::rotate(playerMatrix, glm::radians(-camera.yaw - 90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        playerMatrix = glm::scale(playerMatrix, glm::vec3(modelScale));
+
+        glUniformMatrix4fv(shadowUniforms.model, 1, GL_FALSE, glm::value_ptr(playerMatrix));
+        glUniform1f(shadowUniforms.uLodSpawnTime, -1.0f);
+        glUniform1i(shadowUniforms.uUseTexture, 1);
+
+        playerModel->draw(*shadowShader);
+    }
 
     glEnable(GL_CULL_FACE); // restore
     glBindFramebuffer(GL_FRAMEBUFFER, 0);

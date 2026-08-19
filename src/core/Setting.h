@@ -122,12 +122,11 @@ public:
   // SHADOW
   // ======================
 
-  static inline int shadowDistance = 12;
+  static inline int shadowDistance = 14;
   static inline bool enableShadows = true;
 
-  // 512 keeps the near shadow stable while reducing depth-pass fill cost by
-  // 75% compared with 1024; PCF masks the lower resolution well.
-  static int shadowMapSize() { return 512; }
+  // 2048 gives crisp, accurate high-fidelity shadows for player, entities, and blocks
+  static int shadowMapSize() { return 2048; }
 
   // ======================
   // WORLD HEIGHT

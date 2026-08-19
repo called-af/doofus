@@ -81,15 +81,15 @@ std::vector<float> OBJLoader::load(const std::string& path) {
 
         std::stringstream vs(current);
 
-        int posIndex, uvIndex, normalIndex;
+        int posIndex = 0, uvIndex = 0, normalIndex = 0;
 
         vs >> posIndex >> uvIndex >> normalIndex;
 
-        glm::vec3 pos =
-            positions[posIndex - 1];
+        if (posIndex < 1 || posIndex > (int)positions.size())
+            continue;
 
-        glm::vec2 uv =
-            uvs[uvIndex - 1];
+        glm::vec3 pos = positions[posIndex - 1];
+        glm::vec2 uv = (uvIndex >= 1 && uvIndex <= (int)uvs.size()) ? uvs[uvIndex - 1] : glm::vec2(0.0f);
 
         vertices.push_back(pos.x);
         vertices.push_back(pos.y);
