@@ -33,18 +33,18 @@ void Scene::init()
 
     atlas = std::make_unique<TextureArray>(
         std::vector<std::string>{
-            "assets/textures/grass.png",
-            "assets/textures/grass_side.png",
-            "assets/textures/dirt.png",
-            "assets/textures/stone.png",
-            "assets/textures/sand.png",
-            "assets/textures/basalt.png",
-            "assets/textures/obsidian.png",
-            "assets/textures/ash.png",
-            "assets/textures/cinder.png",
-            "assets/textures/lava.png",
-            "assets/textures/heaven_stone.png",
-            "assets/textures/crystal.png",
+            "assets/textures/grass.png",        // Layer 0
+            "assets/textures/grass_side.png",   // Layer 1
+            "assets/textures/dirt.png",         // Layer 2
+            "assets/textures/stone.png",        // Layer 3
+            "assets/textures/sand.png",         // Layer 4
+            "assets/textures/basalt.png",       // Layer 5
+            "assets/textures/lava.png",         // Layer 6
+            "assets/textures/obsidian.png",     // Layer 7
+            "assets/textures/ash.png",          // Layer 8
+            "assets/textures/cinder.png",       // Layer 9
+            "assets/textures/heaven_stone.png", // Layer 10
+            "assets/textures/crystal.png",      // Layer 11
         },
         16, true);
 
@@ -68,7 +68,8 @@ void Scene::init()
     blockUniforms.model = glGetUniformLocation(shader->id, "model");
     blockUniforms.view = glGetUniformLocation(shader->id, "view");
     blockUniforms.projection = glGetUniformLocation(shader->id, "projection");
-    blockUniforms.lightSpaceMatrix = glGetUniformLocation(shader->id, "lightSpaceMatrix");
+    blockUniforms.uCascadeLightSpace = glGetUniformLocation(shader->id, "uCascadeLightSpace");
+    blockUniforms.uTime = glGetUniformLocation(shader->id, "uTime");
 
     shadowUniforms.lightSpaceMatrix = glGetUniformLocation(shadowShader->id, "lightSpaceMatrix");
     shadowUniforms.model = glGetUniformLocation(shadowShader->id, "model");
@@ -83,7 +84,7 @@ void Scene::init()
     playerUniforms.model = glGetUniformLocation(playerShader->id, "model");
     playerUniforms.view = glGetUniformLocation(playerShader->id, "view");
     playerUniforms.projection = glGetUniformLocation(playerShader->id, "projection");
-    playerUniforms.lightSpaceMatrix = glGetUniformLocation(playerShader->id, "lightSpaceMatrix");
+    playerUniforms.uCascadeLightSpace = glGetUniformLocation(playerShader->id, "uCascadeLightSpace");
     playerUniforms.cameraPos = glGetUniformLocation(playerShader->id, "cameraPos");
     playerUniforms.fogColor = glGetUniformLocation(playerShader->id, "fogColor");
     playerUniforms.fogStart = glGetUniformLocation(playerShader->id, "fogStart");
@@ -290,8 +291,9 @@ void Scene::render()
     glUniformMatrix4fv(blockUniforms.view, 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(blockUniforms.projection, 1, GL_FALSE, glm::value_ptr(projection));
 
-    // Pass light space matrix for shadow mapping
-    glUniformMatrix4fv(blockUniforms.lightSpaceMatrix, 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
+    // Pass 4 cascade light space matrices for horizontal & vertical split shadow mapping
+    glUniformMatrix4fv(blockUniforms.uCascadeLightSpace, 4, GL_FALSE, glm::value_ptr(cascadeLightSpace[0]));
+    glUniform1f(blockUniforms.uTime, (float)(SDL_GetTicks() / 1000.0));
 
     // Bind shadow map to texture unit 1
     glActiveTexture(GL_TEXTURE1);
@@ -333,7 +335,7 @@ void Scene::render()
         glUniformMatrix4fv(playerUniforms.model, 1, GL_FALSE, glm::value_ptr(playerMatrix));
         glUniformMatrix4fv(playerUniforms.view, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(playerUniforms.projection, 1, GL_FALSE, glm::value_ptr(projection));
-        glUniformMatrix4fv(playerUniforms.lightSpaceMatrix, 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
+        glUniformMatrix4fv(playerUniforms.uCascadeLightSpace, 4, GL_FALSE, glm::value_ptr(cascadeLightSpace[0]));
 
         glUniform3f(playerUniforms.cameraPos, camera.position.x, camera.position.y, camera.position.z);
         glUniform3f(playerUniforms.fogColor, hor.r, hor.g, hor.b);
@@ -383,7 +385,10 @@ void Scene::render()
         ClimateSample climate = ClimateSampler::sample(
             (int)playerTransform.position.x, (int)playerTransform.position.z);
 
-        Biome *biome = BiomeManager::getBiome(terrain, climate);
+        Biome *biome = BiomeManager::getBiome(
+            terrain, climate,
+            (int)playerTransform.position.x, (int)playerTransform.position.z,
+            (int)playerTransform.position.y);
 
         debugOverlay.render(Setting::windowWidth, Setting::windowHeight, fps,
                             playerTransform.position, camera.front, groundY,
@@ -393,9 +398,11 @@ void Scene::render()
 
 void Scene::setupShadowPass()
 {
-    int neededRes = Setting::shadowMapSize();
+    // Horizontal and Vertical Cascade strip: 4 viewports side-by-side (4 * height x height)
+    int neededHeight = 1024;
+    int neededWidth = neededHeight * 4; // 4096 x 1024
 
-    if (shadowFBO != 0 && shadowMapRes == neededRes)
+    if (shadowFBO != 0 && shadowMapHeight == neededHeight && shadowMapWidth == neededWidth)
         return;
 
     if (shadowDepthTexture != 0)
@@ -409,7 +416,8 @@ void Scene::setupShadowPass()
         shadowFBO = 0;
     }
 
-    shadowMapRes = neededRes;
+    shadowMapHeight = neededHeight;
+    shadowMapWidth = neededWidth;
 
     glGenFramebuffers(1, &shadowFBO);
     glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
@@ -417,11 +425,10 @@ void Scene::setupShadowPass()
     glGenTextures(1, &shadowDepthTexture);
     glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
-                 shadowMapRes, shadowMapRes, 0,
+                 shadowMapWidth, shadowMapHeight, 0,
                  GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
 
-    // GL_LINEAR required for PCF — hardware interpolates between
-    // 4 depth samples when sampling between texels → soft edge shadow.
+    // GL_LINEAR allows hardware sub-texel filtering for soft edges
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -463,121 +470,131 @@ void Scene::renderShadowPass()
     {
         setupShadowPass();
         glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
-        glViewport(0, 0, shadowMapRes, shadowMapRes);
+        glViewport(0, 0, shadowMapWidth, shadowMapHeight);
         glClear(GL_DEPTH_BUFFER_BIT);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, Setting::windowWidth, Setting::windowHeight);
-        lightSpaceMatrix = glm::mat4(1.0f);
+        for (int i = 0; i < 4; ++i)
+            cascadeLightSpace[i] = glm::mat4(1.0f);
         return;
     }
 
     setupShadowPass();
 
-    // ── Ortho radius — world area covered by shadow ────────────────────────────
-    const float shadowR = Setting::shadowDistance * 16.0f;
+    // ── Horizontal & Vertical Cascade Frustum Partitioning ───────────────────
+    // Based on Tiny-OpenGL-Shadow-Mapping-Examples (shadow_mapping_cascade_horizontal_and_vertical)
+    // Splits the camera view frustum into 4 quadrants:
+    //   0: Left-Bottom,  1: Right-Bottom,  2: Left-Top,  3: Right-Top
+    glm::vec3 camPos = camera.position;
+    glm::vec3 camFront = camera.front;
+    glm::vec3 camRight = camera.right;
+    glm::vec3 camUp = camera.up;
 
-    // ── Up vector ─────────────────────────────────────────────────────────────
-    glm::vec3 up = (std::abs(lightDir.y) > 0.98f)
-                       ? glm::vec3(0.0f, 0.0f, 1.0f)
-                       : glm::vec3(0.0f, 1.0f, 0.0f);
+    float nearPlane = Setting::nearPlane;
+    float farPlane = (float)Setting::shadowDistance * 16.0f;
+    float fovyRad = glm::radians(camera.currentFov);
+    float aspectRatio = (float)Setting::windowWidth / (float)Setting::windowHeight;
 
-    // ── Correct texel snapping ─────────────────────────────────────────────
-    //
-    // worldTexel = size of 1 shadow map texel in world units
-    //   = (shadowR * 2) / shadowMapRes
-    //
-    // Snapping method:
-    //  1. Compute light-space right & up vectors (from cross product)
-    //  2. Project playerPos onto both axes
-    //  3. Snap projection to worldTexel grid
-    //  4. Reconstruct world-space center:
-    //     snappedCenter = playerPos
-    //                   - (frac right offset) * lightRight
-    //                   - (frac up   offset) * lightUp
-    //
-    // This does NOT discard player position components — we only correct
-    // the sub-texel fractional offset, not replacing the position entirely.
-    //
-    const float worldTexel = (shadowR * 2.0f) / (float)shadowMapRes;
+    float tanFovY = std::tan(fovyRad * 0.5f);
+    float tanFovX = aspectRatio * tanFovY;
+    float tanFovD = std::sqrt(tanFovY * tanFovY + tanFovX * tanFovX);
 
-    glm::vec3 lightRight = glm::normalize(glm::cross(up, lightDir));
-    glm::vec3 lightUp = glm::normalize(glm::cross(lightDir, lightRight));
+    float halfNearFar = 0.5f * (nearPlane + farPlane);
+    float halfNearFarD = tanFovD * farPlane * 0.5f;
 
-    glm::vec3 playerPos = playerTransform.position;
+    // Bounding sphere radius encompassing each quadrant
+    float radius = std::sqrt(halfNearFarD * halfNearFarD + (farPlane - halfNearFar) * (farPlane - halfNearFar));
 
-    // Project onto light-space axes
-    float projR = glm::dot(playerPos, lightRight);
-    float projU = glm::dot(playerPos, lightUp);
+    float halfNearFarY = halfNearFarD * tanFovY / tanFovD;
+    float halfNearFarX = halfNearFarD * tanFovX / tanFovD;
 
-    // Extract fractional offset only (remainder after snapping to grid)
-    float fracR = projR - std::floor(projR / worldTexel) * worldTexel;
-    float fracU = projU - std::floor(projU / worldTexel) * worldTexel;
+    // Texel increment for sub-texel stabilization (prevents shadow swimming during camera motion)
+    float worldTexel = (radius * 2.0f) / (float)shadowMapHeight;
 
-    // Correction: shift playerPos back by fractional amount → shadow grid locks in
-    glm::vec3 snappedCenter = playerPos - lightRight * fracR - lightUp * fracU;
+    glm::vec3 lightUpVec = (std::abs(lightDir.y) > 0.98f)
+                               ? glm::vec3(0.0f, 0.0f, 1.0f)
+                               : glm::vec3(0.0f, 1.0f, 0.0f);
+    glm::vec3 lightRightVec = glm::normalize(glm::cross(lightUpVec, lightDir));
+    lightUpVec = glm::normalize(glm::cross(lightDir, lightRightVec));
 
-    // ── Light view matrix ─────────────────────────────────────────────────────
-    // Eye position far along light direction, target = snappedCenter
-    glm::mat4 lightView = glm::lookAt(
-        snappedCenter + lightDir * 700.0f,
-        snappedCenter,
-        up);
-
-    // ── Light ortho projection ────────────────────────────────────────────────
-    // near/far covers floating islands (up to Y=450) and deep canyons safely
-    glm::mat4 lightProjection = glm::ortho(
-        -shadowR, shadowR,
-        -shadowR, shadowR,
-        1.0f, 1400.0f);
-
-    lightSpaceMatrix = lightProjection * lightView;
-
-    // ── Render to shadow FBO ──────────────────────────────────────────────────
     glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
-    glViewport(0, 0, shadowMapRes, shadowMapRes);
+    glViewport(0, 0, shadowMapWidth, shadowMapHeight);
     glClear(GL_DEPTH_BUFFER_BIT);
 
     glEnable(GL_DEPTH_TEST);
-
-    // Disable face culling in shadow pass so all double-sided planes/voxels cast shadows
     glDisable(GL_CULL_FACE);
 
     shadowShader->use();
-    glUniformMatrix4fv(shadowUniforms.lightSpaceMatrix, 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
-
-    glm::mat4 model = glm::mat4(1.0f);
-    glUniformMatrix4fv(shadowUniforms.model, 1, GL_FALSE, glm::value_ptr(model));
-
     float nowSec = (float)(SDL_GetTicks() / 1000.0);
     glUniform1f(shadowUniforms.uTime, nowSec);
     glUniform1i(shadowUniforms.uIsLOD, 0);
 
-    Frustum lightFrustum;
-    lightFrustum.update(lightProjection, lightView);
+    int playerChunkX = (int)std::floor(playerTransform.position.x / Chunk::SIZE);
+    int playerChunkZ = (int)std::floor(playerTransform.position.z / Chunk::SIZE);
 
-    int playerChunkX = (int)std::floor(playerPos.x / Chunk::SIZE);
-    int playerChunkZ = (int)std::floor(playerPos.z / Chunk::SIZE);
-
-    // 1. Draw terrain chunks into shadow map
-    glUniform1i(shadowUniforms.uUseTexture, 0);
-    world.drawShadowChunks(lightFrustum, shadowUniforms.uLodSpawnTime, playerChunkX, playerChunkZ, Setting::shadowDistance);
-
-    // 2. Draw entity / player model into shadow map
-    if (playerModel)
+    for (int cascade = 0; cascade < 4; ++cascade)
     {
-        constexpr float modelScale = 1.85f / 77.16f;
-        glm::mat4 playerMatrix = glm::translate(glm::mat4(1.0f), playerTransform.position);
-        playerMatrix = glm::rotate(playerMatrix, glm::radians(-camera.yaw - 90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        playerMatrix = glm::scale(playerMatrix, glm::vec3(modelScale));
+        // cascade 0: Left-Bottom  (right=false, top=false)
+        // cascade 1: Right-Bottom (right=true,  top=false)
+        // cascade 2: Left-Top     (right=false, top=true)
+        // cascade 3: Right-Top    (right=true,  top=true)
+        bool right = (cascade % 2 == 1);
+        bool top = (cascade / 2 == 1);
 
-        glUniformMatrix4fv(shadowUniforms.model, 1, GL_FALSE, glm::value_ptr(playerMatrix));
-        glUniform1f(shadowUniforms.uLodSpawnTime, -1.0f);
-        glUniform1i(shadowUniforms.uUseTexture, 1);
+        glm::vec3 frustumCenter = camPos +
+            (right ? camRight : -camRight) * halfNearFarX +
+            (top ? camUp : -camUp) * halfNearFarY +
+            camFront * halfNearFar;
 
-        playerModel->draw(*shadowShader);
+        // Texel snapping in light space to lock shadow map texels
+        float projR = glm::dot(frustumCenter, lightRightVec);
+        float projU = glm::dot(frustumCenter, lightUpVec);
+        float fracR = projR - std::floor(projR / worldTexel) * worldTexel;
+        float fracU = projU - std::floor(projU / worldTexel) * worldTexel;
+        glm::vec3 snappedCenter = frustumCenter - lightRightVec * fracR - lightUpVec * fracU;
+
+        glm::mat4 lightView = glm::lookAt(
+            snappedCenter + lightDir * (radius + 400.0f),
+            snappedCenter,
+            lightUpVec);
+
+        glm::mat4 lightProj = glm::ortho(
+            -radius, radius,
+            -radius, radius,
+            1.0f, radius * 2.0f + 800.0f);
+
+        cascadeLightSpace[cascade] = lightProj * lightView;
+
+        glViewport(cascade * shadowMapHeight, 0, shadowMapHeight, shadowMapHeight);
+        glUniformMatrix4fv(shadowUniforms.lightSpaceMatrix, 1, GL_FALSE, glm::value_ptr(cascadeLightSpace[cascade]));
+
+        glm::mat4 model = glm::mat4(1.0f);
+        glUniformMatrix4fv(shadowUniforms.model, 1, GL_FALSE, glm::value_ptr(model));
+
+        Frustum lightFrustum;
+        lightFrustum.update(lightProj, lightView);
+
+        // 1. Draw terrain chunks into this cascade's quadrant viewport
+        glUniform1i(shadowUniforms.uUseTexture, 0);
+        world.drawShadowChunks(lightFrustum, shadowUniforms.uLodSpawnTime, playerChunkX, playerChunkZ, Setting::shadowDistance);
+
+        // 2. Draw entity / player model into this cascade's quadrant viewport
+        if (playerModel)
+        {
+            constexpr float modelScale = 1.85f / 77.16f;
+            glm::mat4 playerMatrix = glm::translate(glm::mat4(1.0f), playerTransform.position);
+            playerMatrix = glm::rotate(playerMatrix, glm::radians(-camera.yaw - 90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            playerMatrix = glm::scale(playerMatrix, glm::vec3(modelScale));
+
+            glUniformMatrix4fv(shadowUniforms.model, 1, GL_FALSE, glm::value_ptr(playerMatrix));
+            glUniform1f(shadowUniforms.uLodSpawnTime, -1.0f);
+            glUniform1i(shadowUniforms.uUseTexture, 1);
+
+            playerModel->draw(*shadowShader);
+        }
     }
 
-    glEnable(GL_CULL_FACE); // restore
+    glEnable(GL_CULL_FACE);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, Setting::windowWidth, Setting::windowHeight);
 }

@@ -140,7 +140,7 @@ public:
 
   static inline int seed = 1233;
 
-  static inline float daySpeed = 1.0f;
+  static inline float daySpeed = 4.0f;
 
   // ======================
   // BIOME
@@ -316,8 +316,19 @@ public:
   static constexpr int hellCanyonFloorY = 8;
   static constexpr int hellCanyonRimY = 45;
   static constexpr float hellLavaThreshold = 0.55f;
-  static constexpr float hellObsidianThreshold = 0.38f;
-  static constexpr float hellSpikeNoiseScale = 0.035f;
+  static constexpr float hellSpikeNoiseScale = 0.05f;
+
+  // Crack / Fissure Network Parameters (Interconnected Magma Vein Network)
+  static constexpr float hellCrackScale = 0.03f;        // Scale of tectonic voronoi crust plates
+  static constexpr float hellCrackWarpScale = 0.01f;    // Frequency of domain warping for jagged fracture lines
+  static constexpr float hellCrackWarpStrength = 10.5f;  // Distortion strength of tectonic cracks
+  static constexpr float hellCrackWidth = 0.34f;         // Width of crack opening between plates
+  static constexpr float hellLavaCrackThreshold = 0.44f; // Threshold for molten lava at fissure bottom (plentiful veins)
+  static constexpr float hellCinderThreshold = 0.34f;    // Glowing cinder / burning ember brim
+  static constexpr float hellObsidianThreshold = 0.22f;  // Hardened volcanic obsidian crust
+  static constexpr float hellAshThreshold = 0.12f;       // Scorched volcanic ash deposits
+
+
 
   // ======================
   // FOG

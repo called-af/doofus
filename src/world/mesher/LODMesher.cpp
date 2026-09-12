@@ -102,7 +102,9 @@ namespace
         if (minY >= maxY)
             return;
 
-        const float layer = (float)getTextureLayerForFace(blockType, 0, isBackFace);
+        float layer = (float)getTextureLayerForFace(blockType, 0, isBackFace);
+        if (blockType == BlockType::Grass && (maxY - minY) > 2.0f)
+            layer = 3.0f; // Stone on sheer vertical cliff faces
         constexpr float light = 0.80f;
         const float u0 = minZ, v0 = minY;
         const float u1 = maxZ, v1 = maxY;
@@ -138,7 +140,9 @@ namespace
         if (minY >= maxY)
             return;
 
-        const float layer = (float)getTextureLayerForFace(blockType, 2, isBackFace);
+        float layer = (float)getTextureLayerForFace(blockType, 2, isBackFace);
+        if (blockType == BlockType::Grass && (maxY - minY) > 2.0f)
+            layer = 3.0f; // Stone on sheer vertical cliff faces
         constexpr float light = 0.70f;
         const float u0 = minX, v0 = minY;
         const float u1 = maxX, v1 = maxY;

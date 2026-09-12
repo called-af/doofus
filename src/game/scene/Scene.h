@@ -48,12 +48,13 @@ private:
   bool cursorLocked = true;
   float fps = 0.0f;
 
-  // Shadow mapping
+  // Shadow mapping (4 Cascades: Horizontal & Vertical Frustum Quadrants)
   GLuint shadowFBO = 0;
   GLuint shadowDepthTexture = 0;
-  int shadowMapRes = 0;
+  int shadowMapWidth = 0;
+  int shadowMapHeight = 0;
   bool shadowActive = false;   // Shadow state hysteresis flag shared between renderShadowPass and render to prevent flicker
-  glm::mat4 lightSpaceMatrix = glm::mat4(1.0f);
+  glm::mat4 cascadeLightSpace[4] = {glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)};
 
   // Cached uniform locations to eliminate glGetUniformLocation per frame
   struct BlockShaderUniforms {
@@ -70,7 +71,8 @@ private:
     GLint model = -1;
     GLint view = -1;
     GLint projection = -1;
-    GLint lightSpaceMatrix = -1;
+    GLint uCascadeLightSpace = -1;
+    GLint uTime = -1;
   } blockUniforms;
 
   struct ShadowShaderUniforms {
@@ -91,7 +93,7 @@ private:
     GLint model = -1;
     GLint view = -1;
     GLint projection = -1;
-    GLint lightSpaceMatrix = -1;
+    GLint uCascadeLightSpace = -1;
     GLint cameraPos = -1;
     GLint fogColor = -1;
     GLint fogStart = -1;

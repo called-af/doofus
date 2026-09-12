@@ -87,7 +87,13 @@ add_executable(doofus
     src/world/biome/plain/PlainBiome.cpp
     src/world/biome/desert/DesertBiome.cpp
     src/world/biome/mountain/MountainBiome.cpp
+    src/world/biome/cliff/CliffBiome.cpp
+    src/world/biome/heaven/HeavenBiome.cpp
+    src/world/biome/hell/HellBiome.cpp
     src/world/terrain/TerrainSampler.cpp
+    src/world/terrain/HellTerrain.cpp
+    src/world/terrain/HeavenTerrain.cpp
+    src/world/terrain/ContinentTerrain.cpp
     src/world/climate/ClimateSampler.cpp
 
     # glad

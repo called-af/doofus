@@ -73,28 +73,26 @@ glm::vec3 Time::getSkyBottomColor()
 
 glm::vec3 Time::getSunDirection()
 {
-    // Sun orbits in the XY plane (Y=up in world space).
-    // tick 6000 = progress 0.25 = sin(pi/2) = 1.0 → sun at peak (Y max)
-    // Add a small Z component so shadows are not 100% flat in the XY plane
-    // → shadows elongate along Z depending on sun position
-    float angle = getDayProgress() * 2.0f * 3.141592f;
-    // Sun orbits in a slightly tilted plane: mix of XY and ZY
-    // This makes shadows elongate in various directions depending on time of day
-    float a = angle;
-    return glm::normalize(glm::vec3(
-        std::cos(a) * 0.8f,   // X component
-        std::sin(a),          // Y component (sun elevation)
-        std::cos(a) * 0.6f    // Z component (adds shadow direction variation)
-    ));
+    // Sun orbits straight in the XY plane from East (+X) to West (-X) with no Z-axis tilt
+    // progress 0.00 = sunrise (+X)
+    // progress 0.25 = noon (+Y peak)
+    // progress 0.50 = sunset (-X)
+    // progress 0.75 = midnight (-Y)
+    float angle = getDayProgress() * 2.0f * 3.14159265f;
+    return glm::vec3(
+        std::cos(angle),
+        std::sin(angle),
+        0.0f
+    );
 }
 
 glm::vec3 Time::getMoonDirection()
 {
-    float angle = (getDayProgress() + 0.5f) * 2.0f * 3.141592f;
-    float a = angle;
-    return glm::normalize(glm::vec3(
-        std::cos(a) * 0.8f,
-        std::sin(a),
-        std::cos(a) * 0.6f
-    ));
+    // Moon orbits opposite the sun in the straight XY plane
+    float angle = (getDayProgress() + 0.5f) * 2.0f * 3.14159265f;
+    return glm::vec3(
+        std::cos(angle),
+        std::sin(angle),
+        0.0f
+    );
 }
