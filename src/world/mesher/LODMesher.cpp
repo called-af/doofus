@@ -50,10 +50,6 @@ namespace
             return 8;
         if (blockType == BlockType::Cinder)
             return 9;
-        if (blockType == BlockType::Heavenstone)
-            return 10;
-        if (blockType == BlockType::Crystal)
-            return 11;
         return 0;
     }
 
@@ -171,32 +167,6 @@ namespace
         }
     }
 
-    // Find candidate Heaven seeds overlapping a given world AABB
-    void findCandidateHeavenSeeds(float minX, float maxX, float minZ, float maxZ,
-                                  std::vector<FeatureSeed> &outSeeds)
-    {
-        outSeeds.clear();
-        constexpr float g = Setting::heavenClusterSpacing;
-        constexpr float maxClusterRadius = 220.0f; // max giant island radius + satellite offsets + warp
-
-        int minCellX = static_cast<int>(std::floor((minX - maxClusterRadius) / g));
-        int maxCellX = static_cast<int>(std::floor((maxX + maxClusterRadius) / g));
-        int minCellZ = static_cast<int>(std::floor((minZ - maxClusterRadius) / g));
-        int maxCellZ = static_cast<int>(std::floor((maxZ + maxClusterRadius) / g));
-
-        for (int cx = minCellX; cx <= maxCellX; ++cx)
-        {
-            for (int cz = minCellZ; cz <= maxCellZ; ++cz)
-            {
-                FeatureSeed s = TerrainGenerator::generateHeavenSeed(cx, cz);
-                if (s.exists)
-                {
-                    outSeeds.push_back(s);
-                }
-            }
-        }
-    }
-
 } // anonymous namespace
 
 void LODMesher::build(const LODMeshRequest &req, std::vector<float> &outVertices)
@@ -226,14 +196,6 @@ void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &out
 
     const int baseWorldX = req.tileX * tileWidthBlocks;
     const int baseWorldZ = req.tileZ * tileWidthBlocks;
-
-    // Pre-query Heaven seeds overlapping this tile
-    std::vector<FeatureSeed> tileHeavenSeeds;
-    findCandidateHeavenSeeds(static_cast<float>(baseWorldX),
-                             static_cast<float>(baseWorldX + tileWidthBlocks),
-                             static_cast<float>(baseWorldZ),
-                             static_cast<float>(baseWorldZ + tileWidthBlocks),
-                             tileHeavenSeeds);
 
     // Fast column scanner with zero redundant noise sampling
     auto scanColumn = [&](int wx, int wz) -> LODColumn
@@ -297,23 +259,6 @@ void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &out
             col.spans.push_back({contH, finalContinentBot, contType, true, true});
         }
 
-        // Tier 3 Heaven Floating Islands
-        for (const auto &s : tileHeavenSeeds)
-        {
-            const int totalIslands = 1 + s.subIsletCount;
-            for (int i = 0; i < totalIslands; ++i)
-            {
-                IslandSlice slice = TerrainGenerator::evaluateIslandSlice(static_cast<float>(wx), static_cast<float>(wz), s, i);
-                if (slice.valid)
-                {
-                    const int minH = std::clamp(static_cast<int>(slice.botY), 280, Chunk::HEIGHT - 2);
-                    const int maxH = std::clamp(static_cast<int>(slice.topY), minH, Chunk::HEIGHT - 1);
-                    BlockType hType = slice.isAnchorPeak ? BlockType::Crystal : BlockType::Grass;
-                    col.spans.push_back({maxH, minH, hType, true, true});
-                }
-            }
-        }
-
         return col;
     };
 
@@ -375,7 +320,7 @@ void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &out
 
                     BlockType sideType =
                         (span.topY >= 270)
-                            ? BlockType::Heavenstone
+                            ? BlockType::Stone
                             : ((span.topY <= Setting::hellCanyonRimY)
                                    ? BlockType::Basalt
                                    : BlockType::Stone);
@@ -409,10 +354,10 @@ void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &out
                 // Top quad
                 emitTopQuad(outVertices, minX, maxX, minZ, maxZ, topY, span.surfaceType);
 
-                // Bottom quad (for floating continent/heaven bodies)
+                // Bottom quad (for floating continent bodies)
                 if (span.needsBottomCap)
                 {
-                    BlockType botType = (span.bottomY >= 270) ? BlockType::Heavenstone : BlockType::Stone;
+                    BlockType botType = (span.bottomY >= 270) ? BlockType::Stone : BlockType::Stone;
                     emitBottomQuad(outVertices, minX, maxX, minZ, maxZ, botY, botType);
                 }
 
@@ -428,7 +373,7 @@ void LODMesher::buildVoxelLOD(const LODMeshRequest &req, std::vector<float> &out
                             return;
                         float y0 = static_cast<float>(eBot);
                         float y1 = static_cast<float>(eTop + stride);
-                        BlockType sideType = (eTop >= 270) ? BlockType::Heavenstone : ((eTop <= Setting::hellCanyonRimY) ? BlockType::Basalt : BlockType::Stone);
+                        BlockType sideType = (eTop >= 270) ? BlockType::Stone : ((eTop <= Setting::hellCanyonRimY) ? BlockType::Basalt : BlockType::Stone);
                         if (isXAxis)
                             emitSideQuadX(outVertices, borderCoord, y0, y1, minZ, maxZ, isBackFace, sideType);
                         else
@@ -527,13 +472,6 @@ void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float>
     const int baseWorldX = req.tileX * tileWidthBlocks;
     const int baseWorldZ = req.tileZ * tileWidthBlocks;
 
-    // Pre-query Heaven seeds overlapping this tile
-    std::vector<FeatureSeed> tileHeavenSeeds;
-    findCandidateHeavenSeeds(static_cast<float>(baseWorldX),
-                             static_cast<float>(baseWorldX + tileWidthBlocks),
-                             static_cast<float>(baseWorldZ),
-                             static_cast<float>(baseWorldZ + tileWidthBlocks),
-                             tileHeavenSeeds);
 
     // Fast analytical column sampler
     auto sampleAnalyticalColumn = [&](int wx, int wz) -> LODColumn
@@ -554,28 +492,6 @@ void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float>
             {
                 const BlockType contType = TerrainGenerator::sampleBlockAt(wx, wz, contTop);
                 col.spans.push_back({contTop, contBot, contType, true, true});
-            }
-        }
-
-        // 3. Tier 3: Heaven Floating Islands
-        for (const auto &s : tileHeavenSeeds)
-        {
-            const int maxIslets = (level >= 4) ? 1 : (1 + s.subIsletCount);
-            for (int i = 0; i < maxIslets; ++i)
-            {
-                IslandSlice slice = TerrainGenerator::evaluateIslandSlice(static_cast<float>(wx), static_cast<float>(wz), s, i);
-                if (slice.valid)
-                {
-                    const int hTop = std::clamp(static_cast<int>(slice.topY), 280, Chunk::HEIGHT - 1);
-                    const int hBot = std::clamp(static_cast<int>(slice.botY), 280, hTop);
-
-                    BlockType hType = BlockType::Grass;
-                    if (level == 3 && slice.isAnchorPeak)
-                    {
-                        hType = BlockType::Crystal;
-                    }
-                    col.spans.push_back({hTop, hBot, hType, true, true});
-                }
             }
         }
 
@@ -637,7 +553,7 @@ void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float>
 
                     BlockType sideType =
                         (span.topY >= 270)
-                            ? BlockType::Heavenstone
+                            ? BlockType::Stone
                             : ((span.topY <= Setting::hellCanyonRimY)
                                    ? BlockType::Basalt
                                    : BlockType::Stone);
@@ -671,10 +587,10 @@ void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float>
                 // Top Cap
                 emitTopQuad(outVertices, minX, maxX, minZ, maxZ, topY, span.surfaceType);
 
-                // Bottom Cap (for floating continent and heaven tiers)
+                // Bottom Cap (for floating continent tiers)
                 if (span.needsBottomCap)
                 {
-                    BlockType botType = (span.bottomY >= 270) ? BlockType::Heavenstone : BlockType::Stone;
+                    BlockType botType = (span.bottomY >= 270) ? BlockType::Stone : BlockType::Stone;
                     emitBottomQuad(outVertices, minX, maxX, minZ, maxZ, botY, botType);
                 }
 
@@ -706,7 +622,7 @@ void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float>
                         if (span.topY > matchingSpan->topY)
                         {
                             const int dropY = std::max(matchingSpan->topY, span.topY - kMaxWallDrop);
-                            BlockType sideType = (span.topY >= 270) ? BlockType::Heavenstone : ((span.topY <= Setting::hellCanyonRimY) ? BlockType::Basalt : BlockType::Stone);
+                            BlockType sideType = (span.topY >= 270) ? BlockType::Stone : ((span.topY <= Setting::hellCanyonRimY) ? BlockType::Basalt : BlockType::Stone);
                             if (isXAxis)
                                 emitSideQuadX(outVertices, borderCoord, static_cast<float>(dropY), topY, minZ, maxZ, isBackFace, sideType);
                             else
@@ -716,7 +632,7 @@ void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float>
                         if (span.needsBottomCap && span.bottomY < matchingSpan->bottomY)
                         {
                             const int riseY = std::min(matchingSpan->bottomY, span.bottomY + kMaxWallDrop);
-                            BlockType sideType = (span.bottomY >= 270) ? BlockType::Heavenstone : BlockType::Stone;
+                            BlockType sideType = (span.bottomY >= 270) ? BlockType::Stone : BlockType::Stone;
                             if (isXAxis)
                                 emitSideQuadX(outVertices, borderCoord, botY, static_cast<float>(riseY), minZ, maxZ, isBackFace, sideType);
                             else
@@ -726,7 +642,7 @@ void LODMesher::buildAnalyticalLOD(const LODMeshRequest &req, std::vector<float>
                     else
                     {
                         const int dropY = std::max(span.bottomY, span.topY - kMaxWallDrop);
-                        BlockType sideType = (span.bottomY >= 270) ? BlockType::Heavenstone : BlockType::Stone;
+                        BlockType sideType = (span.bottomY >= 270) ? BlockType::Stone : BlockType::Stone;
                         if (isXAxis)
                             emitSideQuadX(outVertices, borderCoord, static_cast<float>(dropY), topY, minZ, maxZ, isBackFace, sideType);
                         else

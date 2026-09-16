@@ -4,6 +4,7 @@
 #include "../noise/RidgeNoise.h"
 #include "../noise/CellularNoise.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "../../core/Setting.h"
@@ -98,6 +99,23 @@ TerrainSample TerrainSampler::sample(int worldX, int worldZ)
     terrain.islandMountain = RidgeNoise::generate(
         warpedX, warpedZ, 4, 0.55f,
         Setting::islandMountainScale, Setting::seed + 1100);
+
+    // ─────────────────────────────────────────
+    //  MOUNTAIN MASSIF
+    //  Low-freq FBM → lebar base gunung.
+    //  Dikali ridge noise freq lebih tinggi → puncak tajam di tengah.
+    //  Range 0..1 setelah remap.
+    // ─────────────────────────────────────────
+    const float massifBase =
+        (FBMNoise::generate(worldX, worldZ, 5, 0.55f,
+                            Setting::massifScale, Setting::seed + 1300) + 1.0f) * 0.5f;
+
+    const float massifRidge =
+        RidgeNoise::generate(worldX, worldZ, 4, 0.5f,
+                             Setting::massifRidgeScale, Setting::seed + 1400);
+
+    // Modulate: hanya kolom yang massifBase tinggi yang bisa tumbuh jadi gunung
+    terrain.mountainMassif = std::clamp(massifBase * massifRidge, 0.0f, 1.0f);
 
     return terrain;
 }

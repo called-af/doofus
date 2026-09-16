@@ -10,6 +10,7 @@
 #include "../../platform/sdl/SDLWindow.h"
 #include "../../player/PlayerController.h"
 #include "../../renderer/Frustum.h"
+#include "../../renderer/PointLight.h"
 #include "../../renderer/Sky.h"
 #include "../../renderer/model/Model.h"
 #include "../../renderer/opengl/Shader.h"
@@ -36,7 +37,6 @@ private:
 
   std::unique_ptr<Shader> shader;
   std::unique_ptr<Shader> uiShader;
-  std::unique_ptr<Shader> shadowShader;
   std::unique_ptr<TextureArray> atlas;
   std::unique_ptr<Model> playerModel;
   std::unique_ptr<Shader> playerShader;
@@ -48,14 +48,6 @@ private:
   bool cursorLocked = true;
   float fps = 0.0f;
 
-  // Shadow mapping (4 Cascades: Horizontal & Vertical Frustum Quadrants)
-  GLuint shadowFBO = 0;
-  GLuint shadowDepthTexture = 0;
-  int shadowMapWidth = 0;
-  int shadowMapHeight = 0;
-  bool shadowActive = false;   // Shadow state hysteresis flag shared between renderShadowPass and render to prevent flicker
-  glm::mat4 cascadeLightSpace[4] = {glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)};
-
   // Cached uniform locations to eliminate glGetUniformLocation per frame
   struct BlockShaderUniforms {
     GLint cameraPos = -1;
@@ -66,23 +58,17 @@ private:
     GLint uLightDir = -1;
     GLint uLightColor = -1;
     GLint uAmbientColor = -1;
-    GLint uShadowDistance = -1;
-    GLint uShadowsEnabled = -1;
     GLint model = -1;
     GLint view = -1;
     GLint projection = -1;
-    GLint uCascadeLightSpace = -1;
     GLint uTime = -1;
+    // PointLight array (max 8)
+    GLint uNumPointLights = -1;
+    GLint uPointLightPos[8]       = {};
+    GLint uPointLightColor[8]     = {};
+    GLint uPointLightRadius[8]    = {};
+    GLint uPointLightIntensity[8] = {};
   } blockUniforms;
-
-  struct ShadowShaderUniforms {
-    GLint lightSpaceMatrix = -1;
-    GLint model = -1;
-    GLint uTime = -1;
-    GLint uIsLOD = -1;
-    GLint uLodSpawnTime = -1;
-    GLint uUseTexture = -1;
-  } shadowUniforms;
 
   struct SkyShaderUniforms {
     GLint invProj = -1;
@@ -93,7 +79,6 @@ private:
     GLint model = -1;
     GLint view = -1;
     GLint projection = -1;
-    GLint uCascadeLightSpace = -1;
     GLint cameraPos = -1;
     GLint fogColor = -1;
     GLint fogStart = -1;
@@ -101,11 +86,11 @@ private:
     GLint uLightDir = -1;
     GLint uLightColor = -1;
     GLint uAmbientColor = -1;
-    GLint uShadowDistance = -1;
-    GLint uShadowsEnabled = -1;
-    GLint shadowMap = -1;
+    // PointLight array (max 8)
+    GLint uNumPointLights = -1;
+    GLint uPointLightPos[8]       = {};
+    GLint uPointLightColor[8]     = {};
+    GLint uPointLightRadius[8]    = {};
+    GLint uPointLightIntensity[8] = {};
   } playerUniforms;
-
-  void setupShadowPass();
-  void renderShadowPass();
 };

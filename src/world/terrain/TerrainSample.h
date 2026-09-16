@@ -15,4 +15,7 @@ struct TerrainSample {
     float islandF2;
     float islandCellId;
     float islandMountain;
+
+    // Large-scale mountain massif — low-frequency, wide base, tall peaks
+    float mountainMassif;
 };

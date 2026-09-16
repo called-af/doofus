@@ -10,14 +10,11 @@ flat out int   TexLayer;
 out vec3  FragPos;
 out float FaceLight;
 out vec3  Normal;
-out vec4  FragPosLightSpace;
-out float vNdotL;    // pre-computed NdotL for adaptive bias in fragment shader
 out float vSpawnT;   // 0..1 spawn animation progress
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
-uniform mat4 lightSpaceMatrix;
 
 uniform int   uIsLOD;
 uniform vec3  uLightDir;    // needed in vertex shader for NdotL
@@ -46,26 +43,12 @@ void main()
     FaceLight = aLight;
 
     // ── Normal derived from baked light tier ──────────────────────────────────────
-    // GreedyMesher uses baseFaceLight:
-    //   top    (Y+, !isBackFace): 1.0f  → faceIdx 0 → normal (0, 1, 0)
-    //   bottom (Y-, isBackFace) : 0.55f → faceIdx 1 → normal (0,-1, 0)
-    //   Z-axis (faceAxis==2)    : 0.70f → faceIdx 4 or 5
-    //   X-axis (faceAxis==0)    : 0.80f → faceIdx 2 or 3
-    //
-    // Since aLight does not distinguish +X vs -X and +Z vs -Z, we use
-    // a conservative approach: all side faces assumed +X (normal (1,0,0)).
-    // This is sufficient for shadow bias — small NdotL on side faces → larger bias.
-    // (Small NdotL error has negligible impact on voxel shadow quality.)
     int faceIdx = 0;
     if      (aLight > 0.95) faceIdx = 0;   // top    → (0, 1, 0)
     else if (aLight < 0.60) faceIdx = 1;   // bottom → (0,-1, 0)
     else if (aLight < 0.75) faceIdx = 5;   // Z-axis → (0, 0,-1)  (conservative)
     else                    faceIdx = 2;   // X-axis → (1, 0, 0)  (conservative)
     Normal = faceNormals[faceIdx];
-
-    // Pre-compute NdotL in vertex shader and pass to fragment shader.
-    // Used for adaptive shadow bias (more accurate on sloped surfaces).
-    vNdotL = max(dot(Normal, uLightDir), 0.0);
 
     // ── Spawn animation ──────────────────────────────────────────────────────
     vec3 pos = aPos;
@@ -81,9 +64,8 @@ void main()
         vSpawnT = ease;
     }
 
-    vec3 worldPos     = vec3(model * vec4(pos, 1.0));
-    FragPos           = worldPos;
-    FragPosLightSpace = lightSpaceMatrix * vec4(worldPos, 1.0);
+    vec3 worldPos = vec3(model * vec4(pos, 1.0));
+    FragPos       = worldPos;
 
     gl_Position = projection * view * vec4(worldPos, 1.0);
 }

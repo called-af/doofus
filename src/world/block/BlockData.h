@@ -43,12 +43,6 @@ public:
     case BlockType::Lava:
       return {0.0f, tile * 2.0f, tile, tile * 3.0f};
 
-    case BlockType::Heavenstone:
-      return {tile, tile * 2.0f, tile * 2.0f, tile * 3.0f};
-
-    case BlockType::Crystal:
-      return {tile * 2.0f, tile * 2.0f, tile * 3.0f, tile * 3.0f};
-
     default:
       return {0, 0, 0, 0};
     }

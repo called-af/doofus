@@ -7,16 +7,12 @@ flat in int   TexLayer;
 in vec3  FragPos;
 in float FaceLight;
 in vec3  Normal;
-in vec4  FragPosLightSpace;
-in float vNdotL;    // pre-computed NdotL from vertex shader
 in float vSpawnT;   // 0..1 spawn animation progress
 
 out vec4 FragColor;
 
-uniform mat4 uCascadeLightSpace[4];
 uniform mat4 view;
 uniform sampler2DArray atlas;
-uniform sampler2D      shadowMap;
 
 uniform vec3  cameraPos;
 uniform vec3  fogColor;
@@ -26,60 +22,20 @@ uniform float fogEnd;
 uniform vec3  uLightDir;
 uniform vec3  uLightColor;
 uniform vec3  uAmbientColor;
-uniform float uShadowDistance;
-uniform int   uShadowsEnabled;
 uniform int   uIsLOD;
 uniform float uTime;
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Cascaded Shadow Mapping (Horizontal & Vertical Splits) with Normal-Offset Bias
+//  Point Lights — up to 8 omni lights with realistic attenuation
 // ─────────────────────────────────────────────────────────────────────────────
-float calculateShadow(vec3 worldPos, vec3 normal, float ndotl)
-{
-    if (ndotl <= 0.0001) return 1.0; // Self-shadowing on faces angled away from sun
-
-    // ── Horizontal and Vertical Split Cascade Index ───────────────────────────
-    // Camera view space: +X is right, +Y is up, -Z is view direction
-    // Quadrant 0 = Left-Bottom  (viewPos.x < 0,  viewPos.y < 0)
-    // Quadrant 1 = Right-Bottom (viewPos.x >= 0, viewPos.y < 0)
-    // Quadrant 2 = Left-Top     (viewPos.x < 0,  viewPos.y >= 0)
-    // Quadrant 3 = Right-Top    (viewPos.x >= 0, viewPos.y >= 0)
-    vec4 viewPos = view * vec4(worldPos, 1.0);
-    int cascadeIdx = int(max(sign(viewPos.x), 0.0) + 2.0 * max(sign(viewPos.y), 0.0));
-
-    // Shift shadow test position outward along surface normal (avoids acne while keeping box corners sharp)
-    float normalOffset = max(0.05 * (1.0 - ndotl), 0.012);
-    vec3 biasedPos = worldPos + normal * normalOffset;
-    vec4 lightSpacePos = uCascadeLightSpace[cascadeIdx] * vec4(biasedPos, 1.0);
-
-    vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
-    projCoords = projCoords * 0.5 + 0.5;
-
-    // Outside shadow frustum → no shadow
-    if (projCoords.z > 1.0 || projCoords.z < 0.0 ||
-        projCoords.x < 0.0 || projCoords.x > 1.0 ||
-        projCoords.y < 0.0 || projCoords.y > 1.0)
-        return 0.0;
-
-    // Map into the 4x1 horizontal cascade atlas texture
-    float atlasX = (projCoords.x + float(cascadeIdx)) * 0.25;
-    vec2 shadowCoord = vec2(atlasX, projCoords.y);
-
-    float currentDepth = projCoords.z - 0.00003;
-    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
-
-    // 4-tap sub-texel filter inside the cascade tile
-    float shadow = 0.0;
-    vec2 offset = texelSize * 0.45;
-    
-    shadow += (currentDepth > texture(shadowMap, shadowCoord + vec2(-offset.x, -offset.y)).r) ? 1.0 : 0.0;
-    shadow += (currentDepth > texture(shadowMap, shadowCoord + vec2( offset.x, -offset.y)).r) ? 1.0 : 0.0;
-    shadow += (currentDepth > texture(shadowMap, shadowCoord + vec2(-offset.x,  offset.y)).r) ? 1.0 : 0.0;
-    shadow += (currentDepth > texture(shadowMap, shadowCoord + vec2( offset.x,  offset.y)).r) ? 1.0 : 0.0;
-    shadow *= 0.25;
-
-    return shadow;
-}
+struct PointLight {
+    vec3  position;
+    vec3  color;
+    float radius;
+    float intensity;
+};
+uniform int        uNumPointLights;
+uniform PointLight uPointLights[8];
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Phong Specular
@@ -112,34 +68,35 @@ void main()
 
     float ndotl = max(dot(geomNormal, uLightDir), 0.0);
 
-    // ─── Shadow ───────────────────────────────────────────────────────────
-    const float cameraDistance = length(FragPos - cameraPos);
-    float shadow = 0.0;
-    if (uIsLOD == 0 && uShadowsEnabled == 1 && cameraDistance <= uShadowDistance) {
-        shadow = calculateShadow(FragPos, geomNormal, ndotl);
-        // Smooth fade out near the max shadow distance edge
-        float fadeStart = uShadowDistance * 0.85;
-        if (cameraDistance > fadeStart) {
-            float fade = 1.0 - clamp((cameraDistance - fadeStart) / (uShadowDistance - fadeStart), 0.0, 1.0);
-            shadow *= fade;
-        }
-    }
-
     // ─── Diffuse (Lambert) ────────────────────────────────────────────────
-    vec3 direct = uLightColor * ndotl * (1.0 - shadow * 0.90);
+    vec3 direct = uLightColor * ndotl;
 
     // ─── Phong Specular ─────────────────────────────────────────────────
     vec3 specular = vec3(0.0);
-    if (uIsLOD == 0 && ndotl > 0.0 && uShadowsEnabled == 1
-        && cameraDistance <= uShadowDistance) {
+    if (uIsLOD == 0 && ndotl > 0.0) {
         vec3 viewDir = normalize(cameraPos - FragPos);
         specular = calcSpecular(geomNormal, uLightDir, viewDir, uLightColor);
-        specular *= (1.0 - shadow);
     }
 
     // ─── Combined lighting ────────────────────────────────────────────────
     vec3 light = uAmbientColor + direct + specular;
     light     *= FaceLight;
+
+    // ─── Point Lights (local omni sources — torches, lava glow, etc.) ────
+    if (uIsLOD == 0) {
+        for (int i = 0; i < uNumPointLights; ++i) {
+            float dist = length(uPointLights[i].position - FragPos);
+            if (dist < uPointLights[i].radius) {
+                // Quadratic attenuation: full at dist=0, zero at dist=radius
+                float att = 1.0 / (1.0 + 0.09 * dist + 0.032 * dist * dist);
+                // Smooth falloff at edge of radius
+                att *= (1.0 - smoothstep(uPointLights[i].radius * 0.75, uPointLights[i].radius, dist));
+                vec3 toLight = normalize(uPointLights[i].position - FragPos);
+                float nDotPL = max(dot(geomNormal, toLight), 0.0);
+                light += uPointLights[i].color * uPointLights[i].intensity * att * (0.6 + 0.4 * nDotPL);
+            }
+        }
+    }
 
     if (uIsLOD == 1) {
         light = mix(light, vec3(dot(light, vec3(0.299, 0.587, 0.114))), 0.15);
@@ -174,7 +131,7 @@ void main()
     }
 
     // ─── Fog ──────────────────────────────────────────────────────────────
-    float dist              = cameraDistance;
+    float dist              = length(FragPos - cameraPos);
     float effectiveFogStart = (uIsLOD == 1) ? fogStart * 0.75 : fogStart;
     float ff                = calcFogFactor(dist, effectiveFogStart, fogEnd);
     

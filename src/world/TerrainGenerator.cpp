@@ -34,7 +34,11 @@ TerrainGenerator::buildColumnCache(const Chunk &chunk)
 
             c.canyonDepthRatio = HellTerrain::getCanyonDepthRatio(static_cast<float>(worldX), static_cast<float>(worldZ));
             c.crackIntensity = HellTerrain::getCrackIntensity(static_cast<float>(worldX), static_cast<float>(worldZ), c.canyonDepthRatio);
-            c.heavenSeed = HeavenTerrain::findNearestSeed(static_cast<float>(worldX), static_cast<float>(worldZ), c.heavenDistance);
+
+            // Cache biome blend — dihitung sekali, dipakai ulang di generateSurface
+            // ClimateSampler sudah include domain warp di dalamnya
+            const ClimateSample climate = ClimateSampler::sample(worldX, worldZ);
+            c.biomeBlend = BiomeManager::getBlend(c.terrain, climate, c.pDepth);
         }
     }
 
@@ -78,11 +82,6 @@ int TerrainGenerator::sampleContinentBodyBottomAt(int worldX, int worldZ)
 
 int TerrainGenerator::sampleHeightAt(int worldX, int worldZ)
 {
-    // Tier 3: Heaven floating islands
-    int heavenH = HeavenTerrain::sampleHeightAt(static_cast<float>(worldX), static_cast<float>(worldZ));
-    if (heavenH > 0)
-        return heavenH;
-
     // Tier 2: Normal terrain / Continent
     int continentH = sampleContinentHeightAt(worldX, worldZ);
     if (continentH > 0)
@@ -94,36 +93,25 @@ int TerrainGenerator::sampleHeightAt(int worldX, int worldZ)
 
 BlockType TerrainGenerator::sampleBlockAt(int worldX, int worldZ, int surfaceHeight)
 {
-    if (surfaceHeight >= 270)
-    {
-        return HeavenTerrain::sampleBlock(static_cast<float>(worldX), static_cast<float>(worldZ), surfaceHeight);
-    }
-
     if (surfaceHeight <= Setting::hellCanyonRimY)
     {
         return HellTerrain::sampleBlock(worldX, worldZ, surfaceHeight);
     }
 
     const TerrainSample terrain = TerrainSampler::sample(worldX, worldZ);
-    ClimateSample climate = ClimateSampler::sample(worldX, worldZ);
-    return BiomeManager::getBiome(terrain, climate, worldX, worldZ, surfaceHeight)->getTopBlock();
+    const ClimateSample climate = ClimateSampler::sample(worldX, worldZ);
+
+    const float raw = (terrain.plateau - Setting::plateauThreshold) /
+                      (1.0f - Setting::plateauThreshold);
+    const float pRaw = std::clamp(raw, 0.0f, 1.0f);
+    const float pDepth = pRaw * pRaw * (3.0f - 2.0f * pRaw);
+
+    const BiomeBlend blend = BiomeManager::getBlend(terrain, climate, pDepth);
+    return BiomeManager::blendedTopBlock(blend, worldX, worldZ);
 }
 
 bool TerrainGenerator::isSolidAt(int worldX, int worldZ, int y)
 {
-    // Tier 3: Heaven floating islands
-    float hDist = 0.0f;
-    FeatureSeed hSeed = HeavenTerrain::findNearestSeed(static_cast<float>(worldX), static_cast<float>(worldZ), hDist);
-    if (hSeed.exists)
-    {
-        int totalIslands = 1 + hSeed.subIsletCount;
-        for (int i = 0; i < totalIslands; ++i)
-        {
-            IslandSlice slice = HeavenTerrain::evaluateSlice(static_cast<float>(worldX), static_cast<float>(worldZ), hSeed, i);
-            if (slice.valid && y >= slice.botY && y <= slice.topY)
-                return true;
-        }
-    }
 
     // Hell Underworld & Canyon Floor
     int baseFloorY = sampleHellFloorAt(worldX, worldZ);
@@ -157,11 +145,6 @@ void TerrainGenerator::generateBaseTerrain(Chunk &chunk, const ColumnGrid &cache
             ContinentTerrain::generateColumnBase(chunk, x, z, worldX, worldZ,
                                                  col.terrain, col.pDepth, baseFloorY);
 
-            // TIER 3 — HEAVEN FLOATING ARCHIPELAGO CLUSTERS
-            if (col.heavenSeed.exists)
-            {
-                HeavenTerrain::generateColumnBase(chunk, x, z, worldX, worldZ, col.heavenSeed);
-            }
         }
     }
 }
@@ -178,8 +161,8 @@ void TerrainGenerator::generateSurface(Chunk &chunk, const ColumnGrid &cache)
             const ColumnCache &col = cache[x][z];
             const TerrainSample &terrain = col.terrain;
 
-            ClimateSample climate = ClimateSampler::sample(worldX, worldZ);
-            Biome *biome = BiomeManager::getBiome(terrain, climate, worldX, worldZ, chunk.heightMap[x][z]);
+            // Blend sudah di-cache di buildColumnCache — tidak perlu hitung ulang
+            const BiomeBlend &blend = col.biomeBlend;
 
             int layerDepth = 0;
 
@@ -192,21 +175,11 @@ void TerrainGenerator::generateSurface(Chunk &chunk, const ColumnGrid &cache)
                 const bool airAbove = (y + 1 >= Chunk::HEIGHT) ||
                                       (chunk.blocks[x][y + 1][z] == BlockType::Air);
 
-                // Tier 3 — Heavenstone surface
-                if (bt == BlockType::Heavenstone)
-                {
-                    if (airAbove)
-                    {
-                        HeavenTerrain::generateColumnSurface(chunk, x, z, y, worldX, worldZ, col.heavenSeed, layerDepth);
-                    }
-                    else if (layerDepth > 0)
-                    {
-                        chunk.blocks[x][y][z] = BlockType::Dirt;
-                        --layerDepth;
-                    }
-                }
+               
                 // Tier 1 — Hell Canyon / Underworld surface
-                else if (bt == BlockType::Basalt || bt == BlockType::Obsidian || bt == BlockType::Lava || (y <= Setting::hellCanyonFloorY + 2 && col.canyonDepthRatio > 0.12f))
+                if (bt == BlockType::Basalt || bt == BlockType::Obsidian || bt == BlockType::Ash ||
+                    bt == BlockType::Cinder || bt == BlockType::Lava ||
+                    (y <= Setting::hellCanyonFloorY + 2 && col.canyonDepthRatio > 0.07f))
                 {
                     if (airAbove)
                     {
@@ -218,11 +191,12 @@ void TerrainGenerator::generateSurface(Chunk &chunk, const ColumnGrid &cache)
                 {
                     if (airAbove)
                     {
-                        ContinentTerrain::generateColumnSurface(chunk, x, z, y, worldX, worldZ, biome, layerDepth);
+                        chunk.blocks[x][y][z] = BiomeManager::blendedTopBlock(blend, worldX, worldZ);
+                        layerDepth = 3;
                     }
                     else if (layerDepth > 0)
                     {
-                        chunk.blocks[x][y][z] = biome->getMiddleBlock();
+                        chunk.blocks[x][y][z] = BiomeManager::blendedMiddleBlock(blend, worldX, worldZ);
                         --layerDepth;
                     }
                 }
@@ -247,9 +221,10 @@ void TerrainGenerator::generateCaves(Chunk &chunk, const ColumnGrid &cache)
 
             if (col.isIsland)
             {
-                constexpr int conservativeFlatPlateauH = 100;
+                // Pakai surfaceH aktual (heightMap sudah dihitung di generateBaseTerrain)
+                // supaya estimasi bodyBottom konsisten dengan generateColumnBase
                 const int estimatedBodyBottom =
-                    ContinentTerrain::estimateBodyBottom(conservativeFlatPlateauH, col.pDepth);
+                    ContinentTerrain::estimateBodyBottom(surfaceH, col.pDepth, worldX, worldZ);
 
                 caveMax = std::min(caveMax, estimatedBodyBottom - 2);
             }

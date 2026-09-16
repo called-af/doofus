@@ -9,6 +9,9 @@ public:
     BlockType getTopBlock() override;
     BlockType getMiddleBlock() override;
     BlockType getBottomBlock() override;
+    float idealTemp()     const override { return 1.0f; }
+    float idealHumidity() const override { return 0.0f; }
+    float idealPeaks()    const override { return 0.0f; }
 };
 
 class HellBasaltCragsBiome : public Biome
@@ -18,6 +21,9 @@ public:
     BlockType getTopBlock() override;
     BlockType getMiddleBlock() override;
     BlockType getBottomBlock() override;
+    float idealTemp()     const override { return 1.0f; }
+    float idealHumidity() const override { return 0.0f; }
+    float idealPeaks()    const override { return 0.5f; }
 };
 
 class HellAshlandsBiome : public Biome
@@ -27,4 +33,7 @@ public:
     BlockType getTopBlock() override;
     BlockType getMiddleBlock() override;
     BlockType getBottomBlock() override;
+    float idealTemp()     const override { return 1.0f; }
+    float idealHumidity() const override { return 0.0f; }
+    float idealPeaks()    const override { return 0.0f; }
 };

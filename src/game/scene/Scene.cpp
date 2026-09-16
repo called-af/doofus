@@ -3,6 +3,7 @@
 #include "../../core/Setting.h"
 #include "../../ecs/systems/PhysicsSystem.h"
 #include "../../platform/input/Input.h"
+#include "../../renderer/PointLight.h"
 #include "../../renderer/opengl/TextureArray.h"
 #include "../../renderer/ui/Crosshair.h"
 #include "../../world/biome/BiomeManager.h"
@@ -12,6 +13,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <algorithm>
 #include <iostream>
 
 void Scene::init()
@@ -28,9 +30,6 @@ void Scene::init()
     shader = std::make_unique<Shader>("assets/shaders/block.vert",
                                       "assets/shaders/block.frag");
 
-    shadowShader = std::make_unique<Shader>("assets/shaders/shadow.vert",
-                                            "assets/shaders/shadow.frag");
-
     atlas = std::make_unique<TextureArray>(
         std::vector<std::string>{
             "assets/textures/grass.png",        // Layer 0
@@ -43,8 +42,6 @@ void Scene::init()
             "assets/textures/obsidian.png",     // Layer 7
             "assets/textures/ash.png",          // Layer 8
             "assets/textures/cinder.png",       // Layer 9
-            "assets/textures/heaven_stone.png", // Layer 10
-            "assets/textures/crystal.png",      // Layer 11
         },
         16, true);
 
@@ -63,20 +60,18 @@ void Scene::init()
     blockUniforms.uLightDir = glGetUniformLocation(shader->id, "uLightDir");
     blockUniforms.uLightColor = glGetUniformLocation(shader->id, "uLightColor");
     blockUniforms.uAmbientColor = glGetUniformLocation(shader->id, "uAmbientColor");
-    blockUniforms.uShadowDistance = glGetUniformLocation(shader->id, "uShadowDistance");
-    blockUniforms.uShadowsEnabled = glGetUniformLocation(shader->id, "uShadowsEnabled");
     blockUniforms.model = glGetUniformLocation(shader->id, "model");
     blockUniforms.view = glGetUniformLocation(shader->id, "view");
     blockUniforms.projection = glGetUniformLocation(shader->id, "projection");
-    blockUniforms.uCascadeLightSpace = glGetUniformLocation(shader->id, "uCascadeLightSpace");
     blockUniforms.uTime = glGetUniformLocation(shader->id, "uTime");
-
-    shadowUniforms.lightSpaceMatrix = glGetUniformLocation(shadowShader->id, "lightSpaceMatrix");
-    shadowUniforms.model = glGetUniformLocation(shadowShader->id, "model");
-    shadowUniforms.uTime = glGetUniformLocation(shadowShader->id, "uTime");
-    shadowUniforms.uIsLOD = glGetUniformLocation(shadowShader->id, "uIsLOD");
-    shadowUniforms.uLodSpawnTime = glGetUniformLocation(shadowShader->id, "uLodSpawnTime");
-    shadowUniforms.uUseTexture = glGetUniformLocation(shadowShader->id, "uUseTexture");
+    blockUniforms.uNumPointLights = glGetUniformLocation(shader->id, "uNumPointLights");
+    for (int i = 0; i < LightRegistry::MAX_LIGHTS; ++i) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "uPointLights[%d].position",  i); blockUniforms.uPointLightPos[i]       = glGetUniformLocation(shader->id, buf);
+        snprintf(buf, sizeof(buf), "uPointLights[%d].color",     i); blockUniforms.uPointLightColor[i]     = glGetUniformLocation(shader->id, buf);
+        snprintf(buf, sizeof(buf), "uPointLights[%d].radius",    i); blockUniforms.uPointLightRadius[i]    = glGetUniformLocation(shader->id, buf);
+        snprintf(buf, sizeof(buf), "uPointLights[%d].intensity", i); blockUniforms.uPointLightIntensity[i] = glGetUniformLocation(shader->id, buf);
+    }
 
     skyUniforms.invProj = glGetUniformLocation(sky.shader->id, "invProj");
     skyUniforms.invView = glGetUniformLocation(sky.shader->id, "invView");
@@ -84,7 +79,6 @@ void Scene::init()
     playerUniforms.model = glGetUniformLocation(playerShader->id, "model");
     playerUniforms.view = glGetUniformLocation(playerShader->id, "view");
     playerUniforms.projection = glGetUniformLocation(playerShader->id, "projection");
-    playerUniforms.uCascadeLightSpace = glGetUniformLocation(playerShader->id, "uCascadeLightSpace");
     playerUniforms.cameraPos = glGetUniformLocation(playerShader->id, "cameraPos");
     playerUniforms.fogColor = glGetUniformLocation(playerShader->id, "fogColor");
     playerUniforms.fogStart = glGetUniformLocation(playerShader->id, "fogStart");
@@ -92,9 +86,14 @@ void Scene::init()
     playerUniforms.uLightDir = glGetUniformLocation(playerShader->id, "uLightDir");
     playerUniforms.uLightColor = glGetUniformLocation(playerShader->id, "uLightColor");
     playerUniforms.uAmbientColor = glGetUniformLocation(playerShader->id, "uAmbientColor");
-    playerUniforms.uShadowDistance = glGetUniformLocation(playerShader->id, "uShadowDistance");
-    playerUniforms.uShadowsEnabled = glGetUniformLocation(playerShader->id, "uShadowsEnabled");
-    playerUniforms.shadowMap = glGetUniformLocation(playerShader->id, "shadowMap");
+    playerUniforms.uNumPointLights = glGetUniformLocation(playerShader->id, "uNumPointLights");
+    for (int i = 0; i < LightRegistry::MAX_LIGHTS; ++i) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "uPointLights[%d].position",  i); playerUniforms.uPointLightPos[i]       = glGetUniformLocation(playerShader->id, buf);
+        snprintf(buf, sizeof(buf), "uPointLights[%d].color",     i); playerUniforms.uPointLightColor[i]     = glGetUniformLocation(playerShader->id, buf);
+        snprintf(buf, sizeof(buf), "uPointLights[%d].radius",    i); playerUniforms.uPointLightRadius[i]    = glGetUniformLocation(playerShader->id, buf);
+        snprintf(buf, sizeof(buf), "uPointLights[%d].intensity", i); playerUniforms.uPointLightIntensity[i] = glGetUniformLocation(playerShader->id, buf);
+    }
 
     /*
         CAMERA
@@ -108,8 +107,6 @@ void Scene::init()
         Setting::nearPlane, Setting::farPlane);
     glm::mat4 view = camera.getViewMatrix();
     frustum.update(projection, view);
-
-    setupShadowPass();
 
     // Pass TRUE as last argument (still in init/loading phase)
     world.update(camera.position, camera.front, frustum, true);
@@ -198,9 +195,6 @@ void Scene::render()
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Render shadow pass first
-    renderShadowPass();
-
     glm::mat4 projection = glm::perspective(
         glm::radians(camera.currentFov),
         (float)Setting::windowWidth / (float)Setting::windowHeight,
@@ -283,22 +277,23 @@ void Scene::render()
     glUniform3f(blockUniforms.uLightDir, activeLightDir.x, activeLightDir.y, activeLightDir.z);
     glUniform3f(blockUniforms.uLightColor, activeLightColor.r, activeLightColor.g, activeLightColor.b);
     glUniform3f(blockUniforms.uAmbientColor, activeAmbientColor.r, activeAmbientColor.g, activeAmbientColor.b);
-    glUniform1f(blockUniforms.uShadowDistance, (float)Setting::shadowDistance * 16.0f);
-    glUniform1i(blockUniforms.uShadowsEnabled, (Setting::enableShadows && shadowActive) ? 1 : 0);
 
     glm::mat4 model = glm::mat4(1.0f);
     glUniformMatrix4fv(blockUniforms.model, 1, GL_FALSE, glm::value_ptr(model));
     glUniformMatrix4fv(blockUniforms.view, 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(blockUniforms.projection, 1, GL_FALSE, glm::value_ptr(projection));
-
-    // Pass 4 cascade light space matrices for horizontal & vertical split shadow mapping
-    glUniformMatrix4fv(blockUniforms.uCascadeLightSpace, 4, GL_FALSE, glm::value_ptr(cascadeLightSpace[0]));
     glUniform1f(blockUniforms.uTime, (float)(SDL_GetTicks() / 1000.0));
 
-    // Bind shadow map to texture unit 1
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
-    shader->setInt("shadowMap", 1);
+    // ── Upload registered point lights ────────────────────────────────────
+    const auto& lights = LightRegistry::getAll();
+    int numLights = LightRegistry::count();
+    glUniform1i(blockUniforms.uNumPointLights, numLights);
+    for (int i = 0; i < numLights; ++i) {
+        glUniform3fv(blockUniforms.uPointLightPos[i],   1, &lights[i].position.x);
+        glUniform3fv(blockUniforms.uPointLightColor[i], 1, &lights[i].color.x);
+        glUniform1f (blockUniforms.uPointLightRadius[i],    lights[i].radius);
+        glUniform1f (blockUniforms.uPointLightIntensity[i], lights[i].intensity);
+    }
 
     // Bind atlas to unit 0
     glActiveTexture(GL_TEXTURE0);
@@ -335,7 +330,6 @@ void Scene::render()
         glUniformMatrix4fv(playerUniforms.model, 1, GL_FALSE, glm::value_ptr(playerMatrix));
         glUniformMatrix4fv(playerUniforms.view, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(playerUniforms.projection, 1, GL_FALSE, glm::value_ptr(projection));
-        glUniformMatrix4fv(playerUniforms.uCascadeLightSpace, 4, GL_FALSE, glm::value_ptr(cascadeLightSpace[0]));
 
         glUniform3f(playerUniforms.cameraPos, camera.position.x, camera.position.y, camera.position.z);
         glUniform3f(playerUniforms.fogColor, hor.r, hor.g, hor.b);
@@ -345,12 +339,17 @@ void Scene::render()
         glUniform3f(playerUniforms.uLightDir, activeLightDir.x, activeLightDir.y, activeLightDir.z);
         glUniform3f(playerUniforms.uLightColor, activeLightColor.r, activeLightColor.g, activeLightColor.b);
         glUniform3f(playerUniforms.uAmbientColor, activeAmbientColor.r, activeAmbientColor.g, activeAmbientColor.b);
-        glUniform1f(playerUniforms.uShadowDistance, (float)Setting::shadowDistance * 16.0f);
-        glUniform1i(playerUniforms.uShadowsEnabled, (Setting::enableShadows && shadowActive) ? 1 : 0);
 
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
-        glUniform1i(playerUniforms.shadowMap, 1);
+        // ── Point lights ──────────────────────────────────────────────────
+        const auto& plights = LightRegistry::getAll();
+        int npl = LightRegistry::count();
+        glUniform1i(playerUniforms.uNumPointLights, npl);
+        for (int i = 0; i < npl; ++i) {
+            glUniform3fv(playerUniforms.uPointLightPos[i],   1, &plights[i].position.x);
+            glUniform3fv(playerUniforms.uPointLightColor[i], 1, &plights[i].color.x);
+            glUniform1f (playerUniforms.uPointLightRadius[i],    plights[i].radius);
+            glUniform1f (playerUniforms.uPointLightIntensity[i], plights[i].intensity);
+        }
 
         glDisable(GL_CULL_FACE);
 
@@ -394,207 +393,4 @@ void Scene::render()
                             playerTransform.position, camera.front, groundY,
                             biome->getName(), camera.mode, playerController.debugVisible);
     }
-}
-
-void Scene::setupShadowPass()
-{
-    // Horizontal and Vertical Cascade strip: 4 viewports side-by-side (4 * height x height)
-    int neededHeight = 1024;
-    int neededWidth = neededHeight * 4; // 4096 x 1024
-
-    if (shadowFBO != 0 && shadowMapHeight == neededHeight && shadowMapWidth == neededWidth)
-        return;
-
-    if (shadowDepthTexture != 0)
-    {
-        glDeleteTextures(1, &shadowDepthTexture);
-        shadowDepthTexture = 0;
-    }
-    if (shadowFBO != 0)
-    {
-        glDeleteFramebuffers(1, &shadowFBO);
-        shadowFBO = 0;
-    }
-
-    shadowMapHeight = neededHeight;
-    shadowMapWidth = neededWidth;
-
-    glGenFramebuffers(1, &shadowFBO);
-    glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
-
-    glGenTextures(1, &shadowDepthTexture);
-    glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
-                 shadowMapWidth, shadowMapHeight, 0,
-                 GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-
-    // GL_LINEAR allows hardware sub-texel filtering for soft edges
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    float borderColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
-    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
-
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                           GL_TEXTURE_2D, shadowDepthTexture, 0);
-    glDrawBuffer(GL_NONE);
-    glReadBuffer(GL_NONE);
-
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-        std::cerr << "Shadow framebuffer not complete!" << std::endl;
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
-
-void Scene::renderShadowPass()
-{
-    glm::vec3 sunDir = time.getSunDirection();
-    glm::vec3 moonDir = time.getMoonDirection();
-    glm::vec3 lightDir = (sunDir.y >= 0.0f) ? sunDir : moonDir;
-
-    // ── Hysteresis: prevent shadow flicker on/off at sunset/sunrise ──────────
-    if (shadowActive)
-    {
-        if (lightDir.y < 0.02f)
-            shadowActive = false;
-    }
-    else
-    {
-        if (lightDir.y >= 0.05f)
-            shadowActive = true;
-    }
-
-    if (!shadowActive || !Setting::enableShadows)
-    {
-        setupShadowPass();
-        glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
-        glViewport(0, 0, shadowMapWidth, shadowMapHeight);
-        glClear(GL_DEPTH_BUFFER_BIT);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, Setting::windowWidth, Setting::windowHeight);
-        for (int i = 0; i < 4; ++i)
-            cascadeLightSpace[i] = glm::mat4(1.0f);
-        return;
-    }
-
-    setupShadowPass();
-
-    // ── Horizontal & Vertical Cascade Frustum Partitioning ───────────────────
-    // Based on Tiny-OpenGL-Shadow-Mapping-Examples (shadow_mapping_cascade_horizontal_and_vertical)
-    // Splits the camera view frustum into 4 quadrants:
-    //   0: Left-Bottom,  1: Right-Bottom,  2: Left-Top,  3: Right-Top
-    glm::vec3 camPos = camera.position;
-    glm::vec3 camFront = camera.front;
-    glm::vec3 camRight = camera.right;
-    glm::vec3 camUp = camera.up;
-
-    float nearPlane = Setting::nearPlane;
-    float farPlane = (float)Setting::shadowDistance * 16.0f;
-    float fovyRad = glm::radians(camera.currentFov);
-    float aspectRatio = (float)Setting::windowWidth / (float)Setting::windowHeight;
-
-    float tanFovY = std::tan(fovyRad * 0.5f);
-    float tanFovX = aspectRatio * tanFovY;
-    float tanFovD = std::sqrt(tanFovY * tanFovY + tanFovX * tanFovX);
-
-    float halfNearFar = 0.5f * (nearPlane + farPlane);
-    float halfNearFarD = tanFovD * farPlane * 0.5f;
-
-    // Bounding sphere radius encompassing each quadrant
-    float radius = std::sqrt(halfNearFarD * halfNearFarD + (farPlane - halfNearFar) * (farPlane - halfNearFar));
-
-    float halfNearFarY = halfNearFarD * tanFovY / tanFovD;
-    float halfNearFarX = halfNearFarD * tanFovX / tanFovD;
-
-    // Texel increment for sub-texel stabilization (prevents shadow swimming during camera motion)
-    float worldTexel = (radius * 2.0f) / (float)shadowMapHeight;
-
-    glm::vec3 lightUpVec = (std::abs(lightDir.y) > 0.98f)
-                               ? glm::vec3(0.0f, 0.0f, 1.0f)
-                               : glm::vec3(0.0f, 1.0f, 0.0f);
-    glm::vec3 lightRightVec = glm::normalize(glm::cross(lightUpVec, lightDir));
-    lightUpVec = glm::normalize(glm::cross(lightDir, lightRightVec));
-
-    glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
-    glViewport(0, 0, shadowMapWidth, shadowMapHeight);
-    glClear(GL_DEPTH_BUFFER_BIT);
-
-    glEnable(GL_DEPTH_TEST);
-    glDisable(GL_CULL_FACE);
-
-    shadowShader->use();
-    float nowSec = (float)(SDL_GetTicks() / 1000.0);
-    glUniform1f(shadowUniforms.uTime, nowSec);
-    glUniform1i(shadowUniforms.uIsLOD, 0);
-
-    int playerChunkX = (int)std::floor(playerTransform.position.x / Chunk::SIZE);
-    int playerChunkZ = (int)std::floor(playerTransform.position.z / Chunk::SIZE);
-
-    for (int cascade = 0; cascade < 4; ++cascade)
-    {
-        // cascade 0: Left-Bottom  (right=false, top=false)
-        // cascade 1: Right-Bottom (right=true,  top=false)
-        // cascade 2: Left-Top     (right=false, top=true)
-        // cascade 3: Right-Top    (right=true,  top=true)
-        bool right = (cascade % 2 == 1);
-        bool top = (cascade / 2 == 1);
-
-        glm::vec3 frustumCenter = camPos +
-            (right ? camRight : -camRight) * halfNearFarX +
-            (top ? camUp : -camUp) * halfNearFarY +
-            camFront * halfNearFar;
-
-        // Texel snapping in light space to lock shadow map texels
-        float projR = glm::dot(frustumCenter, lightRightVec);
-        float projU = glm::dot(frustumCenter, lightUpVec);
-        float fracR = projR - std::floor(projR / worldTexel) * worldTexel;
-        float fracU = projU - std::floor(projU / worldTexel) * worldTexel;
-        glm::vec3 snappedCenter = frustumCenter - lightRightVec * fracR - lightUpVec * fracU;
-
-        glm::mat4 lightView = glm::lookAt(
-            snappedCenter + lightDir * (radius + 400.0f),
-            snappedCenter,
-            lightUpVec);
-
-        glm::mat4 lightProj = glm::ortho(
-            -radius, radius,
-            -radius, radius,
-            1.0f, radius * 2.0f + 800.0f);
-
-        cascadeLightSpace[cascade] = lightProj * lightView;
-
-        glViewport(cascade * shadowMapHeight, 0, shadowMapHeight, shadowMapHeight);
-        glUniformMatrix4fv(shadowUniforms.lightSpaceMatrix, 1, GL_FALSE, glm::value_ptr(cascadeLightSpace[cascade]));
-
-        glm::mat4 model = glm::mat4(1.0f);
-        glUniformMatrix4fv(shadowUniforms.model, 1, GL_FALSE, glm::value_ptr(model));
-
-        Frustum lightFrustum;
-        lightFrustum.update(lightProj, lightView);
-
-        // 1. Draw terrain chunks into this cascade's quadrant viewport
-        glUniform1i(shadowUniforms.uUseTexture, 0);
-        world.drawShadowChunks(lightFrustum, shadowUniforms.uLodSpawnTime, playerChunkX, playerChunkZ, Setting::shadowDistance);
-
-        // 2. Draw entity / player model into this cascade's quadrant viewport
-        if (playerModel)
-        {
-            constexpr float modelScale = 1.85f / 77.16f;
-            glm::mat4 playerMatrix = glm::translate(glm::mat4(1.0f), playerTransform.position);
-            playerMatrix = glm::rotate(playerMatrix, glm::radians(-camera.yaw - 90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-            playerMatrix = glm::scale(playerMatrix, glm::vec3(modelScale));
-
-            glUniformMatrix4fv(shadowUniforms.model, 1, GL_FALSE, glm::value_ptr(playerMatrix));
-            glUniform1f(shadowUniforms.uLodSpawnTime, -1.0f);
-            glUniform1i(shadowUniforms.uUseTexture, 1);
-
-            playerModel->draw(*shadowShader);
-        }
-    }
-
-    glEnable(GL_CULL_FACE);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glViewport(0, 0, Setting::windowWidth, Setting::windowHeight);
 }

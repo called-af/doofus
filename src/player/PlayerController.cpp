@@ -28,15 +28,6 @@ void PlayerController::update(Camera &camera, TransformComponent &transform,
    if (Input::bPressed)
     debugVisible = !debugVisible;
 
-  if (Input::bracketLeftPressed) {
-    Setting::shadowDistance = std::max(1, Setting::shadowDistance - 1);
-  }
-  if (Input::bracketRightPressed) {
-    Setting::shadowDistance = std::min(Setting::renderDistance, Setting::shadowDistance + 1);
-  }
-  if (Input::oPressed) {
-    Setting::enableShadows = !Setting::enableShadows;
-  }
   if (Input::kPressed) {
     Setting::maxLODLevel = std::max(0, Setting::maxLODLevel - 1);
   }

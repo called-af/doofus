@@ -11,7 +11,7 @@ public:
     static int computeBaseHeight(const TerrainSample &t);
     static int sampleHeightAt(int worldX, int worldZ, const TerrainSample &t);
     static int sampleBodyBottomAt(int worldX, int worldZ, const TerrainSample &t, int baseFloorY);
-    static int estimateBodyBottom(int flatPlateauH, float pDepth);
+    static int estimateBodyBottom(int topHeight, float pDepth, int worldX = 0, int worldZ = 0);
     static int applyErosion(int h, const TerrainSample &t);
     static bool isSolidAt(int worldX, int worldZ, int y, const TerrainSample &t, int baseFloorY);
 

@@ -3,8 +3,8 @@
 #include "Chunk.h"
 #include "terrain/TerrainSample.h"
 #include "terrain/HellTerrain.h"
-#include "terrain/HeavenTerrain.h"
 #include "terrain/ContinentTerrain.h"
+#include "biome/BiomeManager.h"
 
 #include <array>
 #include <vector>
@@ -22,9 +22,8 @@ struct ColumnCache
     float canyonDepthRatio; // 1.0 at spine center, 0.0 outside canyon
     float crackIntensity;   // 0.0 = solid basalt bedrock, 1.0 = deep molten lava crack/river
 
-    // Tier 3 Heaven data
-    float heavenDistance;   // distance to nearest Heaven seed (0 = center, 1 = edge)
-    FeatureSeed heavenSeed; // nearest Heaven seed
+    // Biome blend — cached per kolom, tidak perlu hitung ulang per Y layer
+    BiomeBlend biomeBlend;
 };
 
 class TerrainGenerator
@@ -32,19 +31,6 @@ class TerrainGenerator
 public:
     static void generate(Chunk &chunk);
 
-    // Standalone feature seed & canyon query helpers (delegated to modular sub-generators)
-    static inline FeatureSeed generateHeavenSeed(int cellX, int cellZ)
-    {
-        return HeavenTerrain::generateSeed(cellX, cellZ);
-    }
-    static inline FeatureSeed findNearestHeavenSeed(float worldX, float worldZ, float &outDist)
-    {
-        return HeavenTerrain::findNearestSeed(worldX, worldZ, outDist);
-    }
-    static inline IslandSlice evaluateIslandSlice(float worldX, float worldZ, const FeatureSeed &s, int islandIndex)
-    {
-        return HeavenTerrain::evaluateSlice(worldX, worldZ, s, islandIndex);
-    }
 
     static inline float getHellSpineX(float worldZ)
     {
@@ -68,9 +54,9 @@ public:
     static int sampleHellFloorAt(int worldX, int worldZ);
     static int sampleContinentHeightAt(int worldX, int worldZ);
     static int sampleContinentBodyBottomAt(int worldX, int worldZ);
-    static inline int estimateBodyBottom(int flatPlateauH, float pDepth)
+    static inline int estimateBodyBottom(int topHeight, float pDepth, int worldX = 0, int worldZ = 0)
     {
-        return ContinentTerrain::estimateBodyBottom(flatPlateauH, pDepth);
+        return ContinentTerrain::estimateBodyBottom(topHeight, pDepth, worldX, worldZ);
     }
 
 private:
